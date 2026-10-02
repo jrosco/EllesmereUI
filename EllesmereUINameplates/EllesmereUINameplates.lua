@@ -402,6 +402,8 @@ local defaults = {
     enemyNameWidthPct = 100,
     enemyNameWrap = false,
     targetScale = 100,
+    noTargetAlpha = 100,
+    noTargetUseNonTargetAlpha = false,
     nonTargetKeepFocus = true,
     outOfRangeAlpha = 50,
     outOfRangeMode = "disabled",
@@ -4944,13 +4946,16 @@ function ns.RefreshAllSettings()
 end
 
 -------------------------------------------------------------------------------
---  Non-Target Opacity: while the player has a target, every skinned plate that is not the
---  target, focus or player fades to nonTargetAlpha (0-100). 100 = OFF: every hook below
---  reduces to one numeric compare. Out-of-range alpha composes into the same root multiplier.
+--  Non-Target Opacity: with a target selected, skinned plates other than the target,
+--  focus (when configured to stay full opacity) and player use nonTargetAlpha. With no
+--  target, all plates except player use noTargetAlpha.
+--  Both settings at 100 = OFF: spawn/target/focus hooks skip the apply path. Out-of-range
+--  alpha composes into the same root multiplier.
 --  Alpha rides the plate ROOT (our own frame, parented to the Blizzard nameplate), so
 --  Blizzard's own occlusion fade still multiplies in.
 -------------------------------------------------------------------------------
 ns._ntAlpha = 1   -- cached 0..1 from the profile; 1 = inert
+ns._ntNoTargetAlpha = 1 -- cached 0..1 for the no-target state; 1 = inert
 ns._ntKeepFocus = true   -- cached "Keep Focus Full Opacity" (default on)
 ns._oorAlpha = 1  -- cached out-of-range alpha; 1 = inert
 
@@ -4961,11 +4966,15 @@ function ns.NT_Apply(plate)
     if not unit then return end
     local a = 1
     local nt = ns._ntAlpha
-    if nt < 1 and UnitExists("target")
-       and not UnitIsUnit(unit, "target")
-       and not (ns._ntKeepFocus and UnitIsUnit(unit, "focus"))
-       and not UnitIsUnit(unit, "player") then
-        a = nt
+    local noTarget = ns._ntNoTargetAlpha
+    if nt < 1 or noTarget < 1 then
+        local hasTarget = UnitExists("target")
+        local opacity = hasTarget and nt or noTarget
+        if ((not hasTarget or not UnitIsUnit(unit, "target")) and opacity < 1)
+           and not (hasTarget and ns._ntKeepFocus and UnitIsUnit(unit, "focus"))
+           and not UnitIsUnit(unit, "player") then
+            a = opacity
+        end
     end
     a = a * (plate._oorCurAlpha or 1)
     if (plate._ntCurAlpha or 1) ~= a then
@@ -4980,12 +4989,19 @@ function ns.NT_ApplyAll()
     end
 end
 
--- Re-derives the cached opacity from the profile and reapplies every plate (un-fades at
--- slider=100). Called from the options slider, OnInitialize, and RefreshAllSettings.
+-- Re-derives both cached opacities from the profile and reapplies every plate (un-fades at
+-- sliders=100). Called from the options sliders, OnInitialize, and RefreshAllSettings.
 function ns.NT_RefreshSetting()
     local v = tonumber(p and p.nonTargetAlpha) or 100
     if v < 0 then v = 0 elseif v > 100 then v = 100 end
     ns._ntAlpha = v / 100
+    if p and p.noTargetUseNonTargetAlpha == true then
+        ns._ntNoTargetAlpha = ns._ntAlpha
+    else
+        local noTargetV = tonumber(p and p.noTargetAlpha) or 100
+        if noTargetV < 0 then noTargetV = 0 elseif noTargetV > 100 then noTargetV = 100 end
+        ns._ntNoTargetAlpha = noTargetV / 100
+    end
     ns._ntKeepFocus = not (p and p.nonTargetKeepFocus == false)
     ns.NT_ApplyAll()
 end
@@ -8125,8 +8141,8 @@ function NameplateFrame:SetUnit(unit, nameplate)
     self:SyncToT(unit)
     -- Attach a pooled aura-container bundle for this unit.
     if ns.NPC_AttachPlate then ns.NPC_AttachPlate(self, unit) end
-    -- Non-Target Opacity (zero cost while off: one numeric compare).
-    if ns._ntAlpha < 1 then ns.NT_Apply(self) end
+    -- Non-Target Opacity (apply only when either opacity setting is below 100).
+    if ns._ntAlpha < 1 or ns._ntNoTargetAlpha < 1 then ns.NT_Apply(self) end
     -- Execute glow is per-spawn state, not appearance: ApplyAppearance is generation-cached
     -- (skipped on recycled plates) and the threshold watcher only reaches plates active at flip
     -- time, so a plate pooled during a no-execute window would return glowless. Re-assert.
@@ -11096,8 +11112,8 @@ manager:SetScript("OnEvent", function(self, event, unit)
             ns._cachedTargetPlate:UpdateHealthColor()
         end
         -- Non-Target Opacity: gaining/losing a target flips every plate's fade state, so this
-        -- is the one full-iteration site. Zero cost while off (single compare).
-        if ns._ntAlpha < 1 then ns.NT_ApplyAll() end
+        -- is the one full-iteration site; skip it when both opacity settings are off.
+        if ns._ntAlpha < 1 or ns._ntNoTargetAlpha < 1 then ns.NT_ApplyAll() end
     elseif event == "PLAYER_FOCUS_CHANGED" then
         -- PERF: only update old + new focus plates instead of iterating all
         local oldFocus = ns._cachedFocusPlate
@@ -11132,7 +11148,7 @@ manager:SetScript("OnEvent", function(self, event, unit)
         end
         -- Non-Target Opacity: only the old and new focus plates change
         -- fade state on a focus swap.
-        if ns._ntAlpha < 1 then
+        if ns._ntAlpha < 1 or ns._ntNoTargetAlpha < 1 then
             if oldFocus then ns.NT_Apply(oldFocus) end
             if ns._cachedFocusPlate and ns._cachedFocusPlate ~= oldFocus then
                 ns.NT_Apply(ns._cachedFocusPlate)

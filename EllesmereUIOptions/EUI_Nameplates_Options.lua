@@ -3503,13 +3503,12 @@ initFrame:SetScript("OnEvent", function(self)
               end,
               tooltip="Scales your current target's nameplate. 100% = no change." },
             { type="slider", text="Non-Target Opacity",
-              tooltip="Fades enemy nameplates that are not your current target or focus while you have a target. 100 = no fading.",
+              tooltip="With a target selected, sets the opacity of other enemy nameplates. 100 = no fading.",
               min=0, max=100, step=1,
               getValue=function() return DBVal("nonTargetAlpha") or 100 end,
               setValue=function(v)
                 DB().nonTargetAlpha = v
                 if ns.NT_RefreshSetting then ns.NT_RefreshSetting() end
-                EllesmereUI:RefreshPage()  -- update the cog disabled state
               end });  y = y - h
         -- "(Percent)" suffix on the target scale slider
         if not EllesmereUI._prebuilding then
@@ -3535,15 +3534,20 @@ initFrame:SetScript("OnEvent", function(self)
                 suffixFS:SetText(EllesmereUI.L("(Percent)"))
             end
         end
-        -- Inline cog on Non-Target Opacity: focus exclusion toggle.
+        -- Inline cog on Non-Target Opacity: no-target opacity linking and focus exclusion.
         if not EllesmereUI._prebuilding then
-            local function ntOff() return (DBVal("nonTargetAlpha") or 100) >= 100 end
             local rgn = tfScaleRow._rightRegion
             EllesmereUI.BuildInlineCog(rgn, {
-                disabled = ntOff,
-                disabledTooltip = "This option requires Non-Target Opacity to be below 100",
                 title = "Non-Target Opacity",
                 rows = {
+                    { type="toggle", label="Apply to No-Target Opacity",
+                      tooltip="When enabled, no-target nameplates use the Non-Target Opacity value.",
+                      get=function() return DBVal("noTargetUseNonTargetAlpha") == true end,
+                      set=function(v)
+                        DB().noTargetUseNonTargetAlpha = v
+                        if ns.NT_RefreshSetting then ns.NT_RefreshSetting() end
+                        EllesmereUI:RefreshPage()  -- update the separate slider's disabled state
+                      end },
                     { type="toggle", label="Keep Focus Full Opacity",
                       tooltip="Your focus target's nameplate never fades with the non-target opacity.",
                       get=function() return DBVal("nonTargetKeepFocus") ~= false end,
@@ -3555,7 +3559,7 @@ initFrame:SetScript("OnEvent", function(self)
             })
         end
 
-        -- Row 3: Focus Cast Height | Focus Letter
+        -- Row 3: Focus Cast Height | No-Target Opacity
         local focusLetterOff = function()
             return DBVal("focusLetterEnabled") ~= true
         end
@@ -3570,13 +3574,15 @@ initFrame:SetScript("OnEvent", function(self)
                 ns.RefreshAllSettings()
               end,
               tooltip="Increases the cast bar height on your focus target's nameplate. 100% = normal height." },
-            { type="toggle", text="Focus Letter",
-              tooltip="Draws a white letter F on your current focus target's nameplate.",
-              getValue=function() return DBVal("focusLetterEnabled") == true end,
+            { type="slider", text="No-Target Opacity",
+              tooltip="Sets enemy nameplate opacity when you have no target. 100 = no fading.",
+              min=0, max=100, step=1,
+              disabled=function() return DBVal("noTargetUseNonTargetAlpha") == true end,
+              disabledTooltip="Inactive because Apply to No-Target Opacity is enabled; the Non-Target Opacity value is used instead.",
+              getValue=function() return DBVal("noTargetAlpha") or 100 end,
               setValue=function(v)
-                DB().focusLetterEnabled = v
-                RefreshAllPlates()
-                EllesmereUI:RefreshPage()
+                DB().noTargetAlpha = v
+                if ns.NT_RefreshSetting then ns.NT_RefreshSetting() end
               end });  y = y - h
         -- "(Percent)" suffix on Focus Cast Height
         if not EllesmereUI._prebuilding then
@@ -3603,8 +3609,29 @@ initFrame:SetScript("OnEvent", function(self)
             end
         end
 
+        -- Row 4: Distance to Target Text
+        local tfRangeOff = function() return DBVal("rangeTextEnabled") ~= true end
+        local tfRangeRow
+        tfRangeRow, h = W:DualRow(parent, y,
+            { type="toggle", text="Distance to Target Text",
+              tooltip="Shows the approximate distance to your current target on its nameplate as a range bracket, e.g. 15+ when the target is 15-20 yards away.",
+              getValue=function() return DBVal("rangeTextEnabled") == true end,
+              setValue=function(v)
+                DB().rangeTextEnabled = v
+                if ns.RangeText_Apply then ns.RangeText_Apply() end
+                EllesmereUI:RefreshPage()
+              end },
+            { type="toggle", text="Focus Letter",
+              tooltip="Draws a white letter F on your current focus target's nameplate.",
+              getValue=function() return DBVal("focusLetterEnabled") == true end,
+              setValue=function(v)
+                DB().focusLetterEnabled = v
+                RefreshAllPlates()
+                EllesmereUI:RefreshPage()
+              end }
+        );  y = y - h
         if not EllesmereUI._prebuilding then
-            local rgn = tfFocusRow._rightRegion
+            local rgn = tfRangeRow._rightRegion
             EllesmereUI.BuildInlineCog(rgn, {
                 icon = EllesmereUI.RESIZE_ICON,
                 disabled = focusLetterOff,
@@ -3640,21 +3667,6 @@ initFrame:SetScript("OnEvent", function(self)
                 },
             })
         end
-
-        -- Row 4: Distance to Target Text
-        local tfRangeOff = function() return DBVal("rangeTextEnabled") ~= true end
-        local tfRangeRow
-        tfRangeRow, h = W:DualRow(parent, y,
-            { type="toggle", text="Distance to Target Text",
-              tooltip="Shows the approximate distance to your current target on its nameplate as a range bracket, e.g. 15+ when the target is 15-20 yards away.",
-              getValue=function() return DBVal("rangeTextEnabled") == true end,
-              setValue=function(v)
-                DB().rangeTextEnabled = v
-                if ns.RangeText_Apply then ns.RangeText_Apply() end
-                EllesmereUI:RefreshPage()
-              end },
-            { type="label", text="" }
-        );  y = y - h
         -- RESIZE cog: text size + X/Y offsets (mirrors the raid-marker cog)
         if not EllesmereUI._prebuilding then
             local rgn = tfRangeRow._leftRegion
