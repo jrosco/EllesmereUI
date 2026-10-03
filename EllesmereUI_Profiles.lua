@@ -289,13 +289,21 @@ end
 -- coroutine can spread the work across frames. nil (the default) keeps all synchronous
 -- callers exactly as before.
 local deserializeYieldHook
-local deserializeOps = 0
+-- Bound parser work independently of the caller's import-specific size limit.
+-- These generous profile budgets do not bound the preceding decompression.
+local DESERIALIZE_MAX_BYTES = 16 * 1024 * 1024
+local DESERIALIZE_MAX_VALUES = 1000000
+local DESERIALIZE_MAX_DEPTH = 128
 
-local function DeserializeValue(str, pos)
+-- A missing next position signals failure; nil with a next position is the
+-- valid N token. Never expose a partially parsed table on failure.
+local function DeserializeValue(str, pos, state, depth)
+    state.values = state.values + 1
+    if state.values > DESERIALIZE_MAX_VALUES then return nil end
     if deserializeYieldHook then
-        deserializeOps = deserializeOps + 1
-        if deserializeOps >= 2048 then
-            deserializeOps = 0
+        state.ops = state.ops + 1
+        if state.ops >= 2048 then
+            state.ops = 0
             deserializeYieldHook(pos)
         end
     end
@@ -303,15 +311,19 @@ local function DeserializeValue(str, pos)
     if tag == "s" then
         -- Find the colon after the length
         local colonPos = str:find(":", pos + 1, true)
-        if not colonPos then return nil, pos end
-        local len = tonumber(str:sub(pos + 1, colonPos - 1))
-        if not len then return nil, pos end
+        if not colonPos then return nil end
+        local lengthStr = str:sub(pos + 1, colonPos - 1)
+        if not lengthStr:match("^%d+$") then return nil end
+        local len = tonumber(lengthStr)
+        if not len or len > state.length - colonPos then return nil end
         local val = str:sub(colonPos + 1, colonPos + len)
         return val, colonPos + len + 1
     elseif tag == "n" then
         local semi = str:find(";", pos + 1, true)
-        if not semi then return nil, pos end
-        return tonumber(str:sub(pos + 1, semi - 1)), semi + 1
+        if not semi then return nil end
+        local val = tonumber(str:sub(pos + 1, semi - 1))
+        if not val or val ~= val or val == math.huge or val == -math.huge then return nil end
+        return val, semi + 1
     elseif tag == "T" then
         return true, pos + 1
     elseif tag == "F" then
@@ -319,44 +331,51 @@ local function DeserializeValue(str, pos)
     elseif tag == "N" then
         return nil, pos + 1
     elseif tag == "{" then
+        if depth >= DESERIALIZE_MAX_DEPTH then return nil end
         local tbl = {}
         local idx = 1
         local p = pos + 1
-        while p <= #str do
+        while p <= state.length do
+            local start = p
             local c = str:sub(p, p)
             if c == "}" then
                 return tbl, p + 1
             elseif c == "K" then
                 -- Key-value pair
                 local key, val
-                key, p = DeserializeValue(str, p + 1)
-                val, p = DeserializeValue(str, p)
-                if key ~= nil then
-                    tbl[key] = val
-                end
+                key, p = DeserializeValue(str, p + 1, state, depth + 1)
+                if key == nil or not p or p <= start + 1 then return nil end
+                local valueStart = p
+                val, p = DeserializeValue(str, p, state, depth + 1)
+                if not p or p <= valueStart then return nil end
+                tbl[key] = val
             else
                 -- Array element
                 local val
-                val, p = DeserializeValue(str, p)
+                val, p = DeserializeValue(str, p, state, depth + 1)
+                if not p or p <= start then return nil end
                 tbl[idx] = val
                 idx = idx + 1
             end
         end
-        return tbl, p
+        return nil -- missing closing brace
     end
-    return nil, pos + 1
+    return nil -- unknown tag, unexpected delimiter, or missing value
 end
 
 function Serializer.Deserialize(str)
-    if not str or #str == 0 then return nil end
-    local val, _ = DeserializeValue(str, 1)
+    if type(str) ~= "string" or #str == 0 or #str > DESERIALIZE_MAX_BYTES then return nil end
+    -- Per-call counters remain independent when a synchronous import runs
+    -- while an asynchronous parser is suspended at its yield hook.
+    local state = { length = #str, values = 0, ops = 0 }
+    local val, pos = DeserializeValue(str, 1, state, 0)
+    if pos ~= #str + 1 then return nil end
     return val
 end
 
 -- Install/clear the deserializer's cooperative-yield hook (async decode).
 function Serializer.SetYieldHook(fn)
     deserializeYieldHook = fn
-    deserializeOps = 0
 end
 
 EllesmereUI._Serializer = Serializer
@@ -2793,7 +2812,7 @@ function EllesmereUI.ExportCurrentProfile(includeLayout, includeCDM, cdmSpecs)
 end
 
 function EllesmereUI.DecodeImportString(importStr)
-    if not importStr or #importStr < 5 then return nil, "Invalid string" end
+    if type(importStr) ~= "string" or #importStr < 5 then return nil, "Invalid string" end
     -- Detect old CDM bar layout strings (format removed in 5.1.2)
     if importStr:sub(1, 9) == "!EUICDM_" then
         return nil, "This is an old CDM Bar Layout string. This format is no longer supported. Use the standard profile import instead."
@@ -2809,6 +2828,9 @@ function EllesmereUI.DecodeImportString(importStr)
     if not decompressed then return nil, "Failed to decompress data" end
     local payload = Serializer.Deserialize(decompressed)
     if not payload or type(payload) ~= "table" then
+        return nil, "Failed to deserialize data"
+    end
+    if payload.version ~= nil and type(payload.version) ~= "number" then
         return nil, "Failed to deserialize data"
     end
     if not payload.version or payload.version < 3 then
@@ -2862,7 +2884,7 @@ do
 
     function EllesmereUI.DecodeImportStringAsync(importStr, onDone, onProgress)
         -- Cheap validations first (same messages as DecodeImportString).
-        if not importStr or #importStr < 5 then
+        if type(importStr) ~= "string" or #importStr < 5 then
             onDone(nil, "Invalid string")
             return nil
         end
@@ -2946,6 +2968,9 @@ do
             Serializer.SetYieldHook(nil)
 
             if not payload or type(payload) ~= "table" then
+                return nil, "Failed to deserialize data"
+            end
+            if payload.version ~= nil and type(payload.version) ~= "number" then
                 return nil, "Failed to deserialize data"
             end
             if not payload.version or payload.version < 3 then
