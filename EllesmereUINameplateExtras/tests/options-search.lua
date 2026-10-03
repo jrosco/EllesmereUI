@@ -1,5 +1,5 @@
 -- Run from the repository root with Lua/fengari; optional case: prebuild, sections, actions.
--- These fixtures model GlobalSearch's absorber/dedup and Panel's row reflow contracts.
+-- Loads actual GlobalSearch prebuild/index and composite factories; models native UI and Panel reflow.
 unpack = unpack or table.unpack
 local case = arg and arg[1]
 local frameCount, dropdowns, refreshes = 0, {}, {}
@@ -20,19 +20,10 @@ function CreateFrame(kind, _, parent)
     function frame:GetChildren() return unpack(self.children) end
     function frame:CreateFontString() return CreateFrame("FontString", nil, self) end
     for _, key in ipairs({ "SetJustifyH", "SetWordWrap", "SetMaxLines", "SetFrameLevel",
-        "EnableMouse", "SetMouseClickEnabled" }) do frame[key] = Noop end
+        "EnableMouse", "SetMouseClickEnabled", "Hide", "Show" }) do frame[key] = Noop end
     return frame
 end
 
--- Like NewAbsorber: methods and string fields absorb calls; numeric keys terminate iteration.
-local meta
-meta = {
-    __index = function(_, key) if type(key) ~= "number" then return setmetatable({}, meta) end end,
-    __call = function() return setmetatable({}, meta) end,
-    __add = function() return 100 end, __sub = function() return 100 end,
-    __mul = function() return 100 end, __div = function() return 1 end,
-}
-local function Absorber() return setmetatable({}, meta) end
 local function Rule(name)
     return { name = name, enabled = true, conditions = { unitType = {}, reaction = {}, classification = {},
         target = { yes = true }, castState = {}, spellSchool = {} },
@@ -41,15 +32,18 @@ end
 local db = { selectedRule = 1, rules = { Rule("First rule"), Rule("Second rule") } }
 EllesmereUINameplateExtras = { GetSettings = function() return db end, Refresh = Noop,
     CastStyleDefaults = {} }
-local spec, prebuild, currentSection, pageRows, index, fields = nil, false, nil, {}, {}, {}
+local spec, currentSection, pageRows, index, fields = nil, nil, {}, {}, {}
+local searchEntries
 local parent = CreateFrame("Frame") -- GlobalSearch also passes a real wrapper, not an absorber parent.
+local function UpdateIndex()
+    for _, entry in ipairs(searchEntries) do index[entry.label] = entry end
+end
 local function Register(label, tooltip, section)
-    if not label or label == "" then return end
-    -- GlobalSearch keys by module/page/label and keeps the first section destination.
-    if not index[label] then index[label] = { label = label, tooltip = tooltip, section = section or currentSection } end
+    EllesmereUI._RegisterSearchEntry(label, nil, tooltip, "plugin:test:NameplateStyle", "Rules",
+        section or currentSection)
+    UpdateIndex()
 end
 local function Row(label, y, height)
-    if prebuild then return Absorber(), 40 end
     local row = CreateFrame("Frame", nil, parent)
     row:SetSize(parent:GetWidth() - 40, height or 50)
     row:SetPoint("TOPLEFT", parent, "TOPLEFT", 20, y)
@@ -63,7 +57,7 @@ function W:SectionHeader(_, text, y)
     currentSection = text
     Register(text, nil, text)
     local row, h = Row(nil, y, 40)
-    if not prebuild then row._sectionName = text end
+    row._sectionName = text
     return row, h
 end
 function W:Dropdown(_, text, y, values, get, set, order, tooltip)
@@ -80,7 +74,6 @@ function W:DualRow(_, y, left, right)
     Register(left and left.text, left and left.tooltip)
     Register(right and right.text, right and right.tooltip)
     local row, h = Row((left and left.text or "") .. " " .. (right and right.text or ""), y)
-    if prebuild then return row, h end
     row._leftRegion = CreateFrame("Frame", nil, row)
     row._rightRegion = CreateFrame("Frame", nil, row)
     for i, cfg in ipairs({ left, right }) do
@@ -93,39 +86,15 @@ end
 function W:Button(_, text, y, click)
     Register(text)
     local row, h = Row(text, y)
-    if not prebuild then
-        local button = CreateFrame("Button", nil, row)
-        button.OnClick = click
-        fields[text] = { click = click, row = row, button = button }
-    end
+    local button = CreateFrame("Button", nil, row)
+    button.OnClick = click
+    fields[text] = { click = click, row = row, button = button }
     return row, h
-end
--- Wide composites tag one full-width row; index each button separately; children stay row-relative.
-local function Composite(texts, clicks, y, width)
-    for _, text in ipairs(texts) do Register(text) end
-    local row, h = Row(table.concat(texts, " "), y, 57)
-    if not prebuild then
-        for i, text in ipairs(texts) do
-            local button = CreateFrame("Button", nil, row)
-            button:SetSize(width, 37)
-            -- Current EUI DUAL_GAP is 42; both composites center their children with it.
-            button:SetPoint("CENTER", row, "CENTER", (i - (#texts + 1) / 2) * (width + 42), 0)
-            button.OnClick = clicks[i]
-            fields[text] = { click = clicks[i], row = row, button = button }
-        end
-    end
-    return row, h
-end
-function W:WideTripleButton(_, a, b, c, y, ca, cb, cc, width)
-    return Composite({ a, b, c }, { ca, cb, cc }, y, width or 205)
-end
-function W:WideDualButton(_, a, b, y, ca, cb, width)
-    return Composite({ a, b }, { ca, cb }, y, width or 250)
 end
 EllesmereUI = {
     Widgets = W, CONTENT_PAD = 20, L = function(text) return text end,
     PanelPP = { Size = function(f, ...) f:SetSize(...) end, Point = function(f, ...) f:SetPoint(...) end },
-    IsSearchPrebuild = function() return prebuild end,
+    IsSearchPrebuild = function() return EllesmereUI._prebuilding == true end,
     MakeFont = function(p) return p:CreateFontString() end,
     RegisterWidgetRefresh = function(fn) refreshes[#refreshes + 1] = fn end,
     BuildVisOptsCBDropdown = function(p, width, level, items, get, set, _, _, _, _, _, opts)
@@ -137,7 +106,54 @@ EllesmereUI = {
     IsPluginRegistered = function() return false end,
     GetPluginModuleKey = function() return "plugin:test:NameplateStyle" end,
     InvalidateModulePageCache = Noop,
+    IsDevModeActive = function() return true end,
+    Show = Noop,
 }
+-- Inspect private closures without copying production implementation into the fixture.
+local function Upvalue(fn, wanted)
+    for i = 1, math.huge do
+        local name, value = debug.getupvalue(fn, i)
+        assert(name, "missing production upvalue: " .. wanted)
+        if name == wanted then return value end
+    end
+end
+local searchNS = { modules = {}, pageCache = {} }
+assert(loadfile("EllesmereUI_GlobalSearch.lua"))("EllesmereUI", searchNS)
+searchEntries = Upvalue(EllesmereUI._RegisterSearchEntry, "_searchIndex")
+local ensureSearchUI = Upvalue(EllesmereUI.Show, "EnsureSearchUI")
+local runPrebuild = Upvalue(ensureSearchUI, "RunPrebuildPass")
+local pending = {}
+C_Timer = { After = function(_, fn) pending[#pending + 1] = fn end }
+function InCombatLockdown() return false end
+function debugprofilestop() return 0 end
+EllesmereUI._SnapshotAndClearWidgetRefreshList = function()
+    local saved = refreshes
+    refreshes = {}
+    return saved
+end
+EllesmereUI._RestoreWidgetRefreshList = function(saved) refreshes = saved end
+-- Load all row definitions, keeping lightweight UI-boundary stubs except for
+-- the actual composites whose anchors, labels and callbacks are under test.
+local mockRows = {}
+for key, value in pairs(W) do mockRows[key] = value end
+EllesmereUI._deferredInits = {}
+EllesmereUI.DUAL_GAP = 42
+function GetLocale() return "enUS" end
+EllesmereUI._widgetInternals = {
+    TagOptionRow = function(row, _, label)
+        row._labelText, row.section = label, currentSection
+        pageRows[#pageRows + 1] = row
+        Register(label)
+    end,
+    IndexSlotForSearch = function(_, text) Register(text) end,
+}
+EllesmereUI.MakeStyledButton = function(button, text, _, _, click)
+    button.OnClick = click
+    fields[text] = { click = click, row = button.parent, button = button }
+end
+assert(loadfile("EllesmereUIOptions/EllesmereUI_Widgets_Rows.lua"))()
+EllesmereUI._deferredInits[1]()
+for key, value in pairs(mockRows) do W[key] = value end
 local function Build()
     currentSection, pageRows = nil, {}
     local h = spec.modules[1].buildPage("Rules", parent, -6)
@@ -147,17 +163,29 @@ local function Build()
 end
 EllesmereUI.RefreshPage = Build
 assert(loadfile("EllesmereUINameplateExtras/EllesmereUINameplateExtras_Options.lua"))()
+searchNS.modules["plugin:test:NameplateStyle"] = {
+    pages = { "Rules" }, buildPage = spec.modules[1].buildPage,
+}
 
 local actions = { "Add Rule", "Copy Rule", "Delete Rule", "Move Rule Up", "Move Rule Down" }
 local function PrebuildTest()
-    local ok = pcall(CreateFrame, "Frame", nil, Absorber()._leftRegion)
-    assert(not ok, "fixture must reject absorber parents")
-    prebuild = true
+    local ok = pcall(CreateFrame, "Frame", nil, {})
+    assert(not ok, "fixture must reject non-native parents")
+    local previousPageRefresh = function() error("previous live page refresh invoked during prebuild") end
+    refreshes[1] = previousPageRefresh
     local before = frameCount
-    local built, err = pcall(Build)
-    prebuild = false
+    local built, err = pcall(function()
+        runPrebuild()
+        while #pending > 0 do table.remove(pending, 1)() end
+    end)
     assert(built, "absorber prebuild aborted: " .. tostring(err))
-    assert(frameCount == before and #refreshes == 0, "prebuild built controls or leaked refresh callbacks")
+    UpdateIndex()
+    -- The real pass allocates its hidden parent and reused wrapper, but no controls.
+    assert(frameCount == before + 2, "prebuild built controls")
+    assert(#refreshes == 1 and refreshes[1] == previousPageRefresh,
+        "prebuild leaked refresh callbacks or lost the prior live page's registry")
+    assert(EllesmereUI.Widgets == W and not EllesmereUI._prebuilding, "prebuild state not restored")
+    refreshes = {}
     for _, label in ipairs({ "Unit type", "Reaction", "Classification", "Target state", "Cast state",
         "Spell school", "Quest Objective", "Nameplate size (%)", "Opacity (%)", "Health-bar texture",
         "Cast-bar texture", "Cast border size" }) do
@@ -179,7 +207,7 @@ local function PrebuildTest()
     assert(not unit.get("npc") and unit.get("player"), "deselect erased another selection")
     unit.set("player", false)
     assert(next(db.rules[1].conditions.unitType) == nil, "empty selection must mean Any")
-    print("PASS prebuild: absorber rejected as native parent; full index; zero UI allocation; six live dropdowns")
+    print("PASS prebuild: actual GlobalSearch pass/index; two wrapper frames, zero controls; six live dropdowns")
 end
 local function SectionsTest()
     Build() -- first registration is retained, exactly like GlobalSearch.

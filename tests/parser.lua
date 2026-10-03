@@ -219,13 +219,21 @@ Equal(valid, (Async(code)))
 
 -- Use the real Extras consumer too: its pcall must receive a finite failure
 -- from the shared parser, and malformed input must leave settings untouched.
-local settings = { rules = { "original" } }
+SlashCmdList = {}
+C_Timer = { After = function() end }
+function UnitFullName() return "ParserCharacter", "TestRealm" end
+EllesmereUINameplateExtrasDB = { rules = {
+    { name = "Original", conditions = {}, style = {} },
+} }
+assert(loadfile("EllesmereUINameplateExtras/EllesmereUINameplateExtras.lua"))("EllesmereUINameplateExtras", {})
+local settings = EllesmereUINameplateExtras.GetSettings()
+local originalRules = settings.rules
 local refreshes = 0
-EllesmereUINameplateExtras = {
-    GetSettings = function() return settings end,
-    GetRules = function() return settings.rules end,
-    Refresh = function() refreshes = refreshes + 1 end,
-}
+local refresh = EllesmereUINameplateExtras.Refresh
+EllesmereUINameplateExtras.Refresh = function()
+    refreshes = refreshes + 1
+    refresh()
+end
 LibStub = function(name) assert(name == "LibDeflate"); return LibDeflate end
 LibDeflate.CompressDeflate = function(_, wire) return wire end
 LibDeflate.EncodeForPrint = function(_, wire) return wire end
@@ -240,7 +248,7 @@ for _, body in ipairs({ "{s}", "{n}", "{Ks1:an}", "{T", "{}junk", Nested(129) })
     debug.sethook()
     assert(not exceededBudget, "Extras import stalled inside its pcall")
     assert(success == false and reason == "The rule-set code is damaged or from an unsupported version.")
-    assert(settings.rules[1] == "original" and refreshes == 0)
+    assert(settings.rules == originalRules and settings.rules[1].name == "Original" and refreshes == 0)
 end
 local rules = { { name = "Rule", enabled = true, conditions = {}, style = { scale = 100 } } }
 for version = 1, 2 do
