@@ -410,9 +410,16 @@ local function BuildAboutPage(parent, yOffset)
 end
 
 local function Register()
-    if not (EllesmereUI and EllesmereUI.RegisterPlugin) then return end
-    if EllesmereUI.IsPluginRegistered(PLUGIN_ID) then return end
-    EllesmereUI.RegisterPlugin(PLUGIN_ID, {
+    if not (EllesmereUI and type(EllesmereUI.RegisterPlugin) == "function"
+        and type(EllesmereUI.IsPluginRegistered) == "function") then
+        addon.pluginRegistrationError = "This EllesmereUI build does not expose the plugin registration API"
+        return false
+    end
+    if EllesmereUI.IsPluginRegistered(PLUGIN_ID) then
+        addon.pluginRegistered = true
+        return true
+    end
+    local ok, registered = pcall(EllesmereUI.RegisterPlugin, PLUGIN_ID, {
         label = "Nameplate Extras",
         modules = {
             {
@@ -435,11 +442,23 @@ local function Register()
             },
         },
     })
+    addon.pluginRegistered = ok and registered == true
+    addon.pluginRegistrationError = addon.pluginRegistered and nil
+        or (ok and "EllesmereUI rejected the plugin specification" or tostring(registered))
+    return addon.pluginRegistered
 end
 
-local login = CreateFrame("Frame")
-    login:RegisterEvent("PLAYER_LOGIN")
-login:SetScript("OnEvent", function(self)
-    self:UnregisterEvent("PLAYER_LOGIN")
-    Register()
-end)
+-- Register immediately after EUI's hard dependency has loaded. Retry at login
+-- and on addon loads in case an older/LoD EUI load order exposes the API later.
+addon.RegisterOptions = Register
+if not Register() then
+    local retry = CreateFrame("Frame")
+    retry:RegisterEvent("ADDON_LOADED")
+    retry:RegisterEvent("PLAYER_LOGIN")
+    retry:SetScript("OnEvent", function(self)
+        if Register() then
+            self:UnregisterAllEvents()
+            self:SetScript("OnEvent", nil)
+        end
+    end)
+end

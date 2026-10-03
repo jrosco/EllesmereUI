@@ -576,6 +576,17 @@ SlashCmdList.NAMEPLATEEXTRAS = function()
     end
     Report("diagnostics v3; addon=EllesmereUINameplateExtras; feature=Nameplate Style; enabled=" .. Text(db.enabled ~= false)
         .. "; settings shared with options=" .. Text(db == _G.EllesmereUINameplateExtrasDB))
+    local pluginRegistered = EllesmereUI and EllesmereUI.IsPluginRegistered
+        and EllesmereUI.IsPluginRegistered("EllesmereUINameplateExtras") or false
+    Report("EUI plugin section registered=" .. Text(pluginRegistered))
+    Report("EUI plugin API available=" .. Text(EllesmereUI and type(EllesmereUI.RegisterPlugin) == "function"))
+    if not pluginRegistered and addon.RegisterOptions then
+        local ok, result = pcall(addon.RegisterOptions)
+        Report("registration retry=" .. Text(ok and result == true)
+            .. "; reason=" .. Text(addon.pluginRegistrationError or (not ok and result) or "not reported"))
+    elseif addon.pluginRegistrationError then
+        Report("registration error=" .. Text(addon.pluginRegistrationError))
+    end
     NP = _G.EllesmereNameplates_NS
     if not NP then Report("EUI nameplate namespace missing"); return end
     local targetPlate

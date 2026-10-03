@@ -243,15 +243,15 @@ rows["Health-bar color"].set(0.9, 0.8, 0.7)
 Flush()
 Near(plate.scale, 1.44, "options slider changes live scale")
 Near(plate.health.color[1], 0.9, "options picker changes live color")
-assert(rows["Require active quest objective"].get() == false)
-rows["Require active quest objective"].set(true)
+assert(rows["Quest Objective"].get() == false)
+rows["Quest Objective"].set(true)
 assert(api.GetRules()[1].conditions.questObjective == "yes")
 api.GetRules()[1].conditions.questObjective = "yes"
 questObjective = false
 assert(namespace.FindRule("nameplate1") == nil, "quest condition matched a non-objective")
 questObjective = true
 assert(namespace.FindRule("nameplate1") == api.GetRules()[1], "quest objective condition failed to match")
-rows["Require active quest objective"].set(false)
+rows["Quest Objective"].set(false)
 assert(api.GetRules()[1].conditions.questObjective == "any", "quest toggle off must remove the condition")
 rows["Add Rule"].click(); Flush()
 assert(HasHeader("RULE ORDER - POSITION 1 OF 2", "(Custom Rule 2)"))
