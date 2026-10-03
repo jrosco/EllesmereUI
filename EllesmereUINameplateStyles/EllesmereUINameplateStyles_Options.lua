@@ -74,6 +74,11 @@ local function NewRule(index)
     }
 end
 
+local function RuleHeading(title, rule, index)
+    local name = rule and rule.name or ("Rule " .. index)
+    return title .. " (" .. name .. ")"
+end
+
 local function BuildRulesPage(parent, yOffset)
     local W = EllesmereUI.Widgets
     local y = yOffset
@@ -81,7 +86,7 @@ local function BuildRulesPage(parent, yOffset)
     local db = DB()
     local rule, selected = GetRule()
 
-    _, h = W:SectionHeader(parent, ("RULE ORDER - POSITION %d OF %d"):format(selected, #db.rules), y); y = y - h
+    _, h = W:SectionHeader(parent, RuleHeading(("RULE ORDER - POSITION %d OF %d"):format(selected, #db.rules), rule, selected), y); y = y - h
     local labels, order = {}, {}
     for i, item in ipairs(db.rules) do
         local key = tostring(i)
@@ -165,7 +170,7 @@ local function BuildRulesPage(parent, yOffset)
     end)
     y = y - actionHeight
 
-    _, h = W:SectionHeader(parent, "MATCH CONDITIONS", y); y = y - h
+    _, h = W:SectionHeader(parent, RuleHeading("MATCH CONDITIONS", rule, selected), y); y = y - h
     _, h = W:Toggle(parent, "Rule enabled", y,
         function() return GetRule().enabled ~= false end,
         function(value) GetRule().enabled = value; Rebuild(); Changed() end)
@@ -194,7 +199,7 @@ local function BuildRulesPage(parent, yOffset)
     ConditionDropdown("Spell school", "spellSchool", SCHOOLS, SCHOOL_ORDER,
         "Learns spell schools from combat-log cast starts while a school rule is enabled. Unknown spells do not match a specific school.")
 
-    _, h = W:SectionHeader(parent, "APPEARANCE - NAMEPLATE", y); y = y - h
+    _, h = W:SectionHeader(parent, RuleHeading("APPEARANCE - NAMEPLATE", rule, selected), y); y = y - h
     _, h = W:Slider(parent, "Nameplate size (%)", y, 50, 200, 5,
         function() return GetRule().style.scale or 100 end,
         function(value) GetRule().style.scale = value; Changed() end,
@@ -205,7 +210,7 @@ local function BuildRulesPage(parent, yOffset)
         function(value) GetRule().style.opacity = value; Changed() end,
         "Multiplies the nameplate's current EUI opacity by this value.")
     y = y - h
-    _, h = W:SectionHeader(parent, "APPEARANCE - HEALTH BAR", y); y = y - h
+    _, h = W:SectionHeader(parent, RuleHeading("APPEARANCE - HEALTH BAR", rule, selected), y); y = y - h
     _, h = W:Toggle(parent, "Override health bar", y,
         function() return GetRule().style.healthEnabled ~= false end,
         function(value) GetRule().style.healthEnabled = value; Changed(); Rebuild() end,
@@ -268,7 +273,7 @@ local function BuildRulesPage(parent, yOffset)
         setValue = function(value) GetRule().style.borderSize = value; Changed() end,
     }, nil); y = y - h
 
-    _, h = W:SectionHeader(parent, "APPEARANCE - CAST BAR", y); y = y - h
+    _, h = W:SectionHeader(parent, RuleHeading("APPEARANCE - CAST BAR", rule, selected), y); y = y - h
     _, h = W:Toggle(parent, "Override cast bar", y,
         function() return GetRule().style.castEnabled == true end,
         function(value) GetRule().style.castEnabled = value; Changed(); Rebuild() end,

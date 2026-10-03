@@ -150,11 +150,14 @@ api.Refresh(); Flush()
 Near(plate.scale, 1.38, "refresh preserves engine scale")
 
 local rows, spec = {}, nil
-local positionHeader
+local sectionHeaders = {}
 local parent = CreateFrame()
 local W = {}
 function W:SectionHeader(_, text)
-    if text:find("^RULE ORDER") then positionHeader = text end
+    if text:find("^RULE ORDER") then
+        for index = #sectionHeaders, 1, -1 do sectionHeaders[index] = nil end
+    end
+    sectionHeaders[#sectionHeaders + 1] = text
     return {}, 40
 end
 function W:Button(_, text, y, click)
@@ -196,7 +199,17 @@ EllesmereUI = {
 assert(loadfile("EllesmereUINameplateStyles/EllesmereUINameplateStyles_Options.lua"))()
 Fire("PLAYER_LOGIN")
 spec.modules[1].buildPage("Rules", parent, 0)
-assert(positionHeader == "RULE ORDER - POSITION 1 OF 1")
+local function HasHeader(prefix, suffix)
+    for _, text in ipairs(sectionHeaders) do
+        if text:find(prefix, 1, true) == 1 and text:sub(-#suffix) == suffix then return true end
+    end
+    return false
+end
+assert(HasHeader("RULE ORDER - POSITION 1 OF 1", "(Replacement rule)"))
+assert(HasHeader("MATCH CONDITIONS", "(Replacement rule)"))
+assert(HasHeader("APPEARANCE - NAMEPLATE", "(Replacement rule)"))
+assert(HasHeader("APPEARANCE - HEALTH BAR", "(Replacement rule)"))
+assert(HasHeader("APPEARANCE - CAST BAR", "(Replacement rule)"))
 local actions = { "Add Rule", "Delete Rule", "Move Rule Up", "Move Rule Down" }
 for index, text in ipairs(actions) do
     local action = rows[text]
@@ -211,7 +224,7 @@ Flush()
 Near(plate.scale, 1.44, "options slider changes live scale")
 Near(plate.health.color[1], 0.9, "options picker changes live color")
 rows["Add Rule"].click(); Flush()
-assert(positionHeader == "RULE ORDER - POSITION 1 OF 2")
+assert(HasHeader("RULE ORDER - POSITION 1 OF 2", "(Custom Rule 2)"))
 assert(namespace.FindRule("nameplate1") == api.GetRules()[1], "new rule not selected by renderer")
 Near(plate.scale, 1.2, "new rule scale")
 Near(plate.health.color[1], 1, "new rule color")
@@ -221,22 +234,23 @@ local style, conditions = renamed.style, renamed.conditions
 rows["Rule name"].set("  My Target Rule  ")
 assert(renamed.name == "My Target Rule", "rename must trim and save")
 assert(rows["Edit rule"].values["1"] == "My Target Rule", "dropdown label not updated")
+assert(HasHeader("APPEARANCE - NAMEPLATE", "(My Target Rule)"), "heading did not update after rename")
 assert(api.GetSettings().selectedRule == 1 and api.GetRules()[1] == renamed, "rename changed order or selection")
 assert(renamed.style == style and renamed.conditions == conditions, "rename changed rule behavior")
 rows["Rule name"].set(" \t\n ")
 assert(renamed.name == "My Target Rule", "blank name replaced existing name")
 local oldNameField = rows["Rule name"]
 rows["Edit rule"].set("2")
-assert(positionHeader == "RULE ORDER - POSITION 2 OF 2")
+assert(HasHeader("RULE ORDER - POSITION 2 OF 2", "(Replacement rule)"))
 oldNameField.set("Target Rule")
 assert(renamed.name == "Target Rule" and api.GetRules()[2].name == "Replacement rule",
     "focus-loss commit renamed the wrong rule")
 rows["Edit rule"].set("1")
 assert(rows["Rule name"].get() == "Target Rule", "rename lost after page rebuild")
 rows["Move Rule Down"].click(); Flush()
-assert(positionHeader == "RULE ORDER - POSITION 2 OF 2" and api.GetRules()[2] == renamed)
+assert(HasHeader("RULE ORDER - POSITION 2 OF 2", "(Target Rule)") and api.GetRules()[2] == renamed)
 rows["Move Rule Up"].click(); Flush()
-assert(positionHeader == "RULE ORDER - POSITION 1 OF 2" and api.GetRules()[1] == renamed)
+assert(HasHeader("RULE ORDER - POSITION 1 OF 2", "(Target Rule)") and api.GetRules()[1] == renamed)
 
 EllesmereUI.IsSearchPrebuild = function() return true end
 spec.modules[1].buildPage("Rules", {}, 0)
@@ -264,7 +278,7 @@ assert(namespace.db == EllesmereUINameplateStylesDB)
 
 rows["Add Rule"].click(); Flush()
 rows["Delete Rule"].click(); Flush()
-assert(positionHeader == "RULE ORDER - POSITION 1 OF 1", "delete must update position and total")
+assert(HasHeader("RULE ORDER - POSITION 1 OF 1", "(Late replacement)"), "delete must update position and total")
 
 -- Cast styling is opt-in, including on existing saved rules.
 assert(rows["Override cast bar"].get() == false)
