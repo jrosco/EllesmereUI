@@ -215,5 +215,33 @@ test("destination conditional override paths remain owned when source containers
     equal(source.condOverrides, nil)
 end)
 
+test("active sync without exclusions preserves nested live table identities", function()
+    local folder = "UnexcludedModule"
+    local color = { r = 0.8, stale = true }
+    local panel = { color = color, stale = true }
+    local order = { "old", "stale" }
+    local dstData = { panel = panel, order = order, stale = true }
+    local srcData = { panel = { color = { r = 0.2, g = 0.3 } }, order = { "new" } }
+    EllesmereUIDB = { activeProfile = "Destination", profiles = {
+        Source = { addons = { [folder] = srcData } },
+        Destination = { addons = { [folder] = dstData } },
+    } }
+    EUI.Lite._dbRegistry = {}
+    EUI.SyncModuleFromProfile(folder, "Source", { Destination = true })
+    equal(EllesmereUIDB.profiles.Destination.addons[folder], dstData, "root identity")
+    equal(dstData.panel, panel, "nested panel identity")
+    equal(panel.color, color, "nested color identity")
+    equal(dstData.order, order, "array identity")
+    equal(color.r, 0.2)
+    equal(color.g, 0.3)
+    equal(color.stale, nil)
+    equal(panel.stale, nil)
+    equal(dstData.stale, nil)
+    equal(order[1], "new")
+    equal(order[2], nil)
+    color.r = 0.9
+    equal(srcData.panel.color.r, 0.2, "source not aliased")
+end)
+
 print(string.format("profile-sync: %d passed, %d failed", passed, failed))
 if failed > 0 then os.exit(1) end

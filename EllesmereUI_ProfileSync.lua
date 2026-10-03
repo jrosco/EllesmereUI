@@ -294,14 +294,9 @@ do
                             dst = {}
                             prof.addons[folder] = dst
                         end
-                        if exclusions and next(exclusions) then
-                            EllesmereUI._SelectiveOverlay(srcData, dst, exclusions, DeepCopy)
-                        else
-                            wipe(dst)
-                            for k, v in pairs(srcData) do
-                                dst[k] = type(v) == "table" and DeepCopy(v) or v
-                            end
-                        end
+                        -- Even without exclusions, nested tables may have live
+                        -- consumers. Replace their state through the same in-place traversal.
+                        EllesmereUI._SelectiveOverlay(srcData, dst, exclusions, DeepCopy)
                     elseif not (exclusions and next(exclusions)) then
                         prof.addons[folder] = DeepCopy(srcData)
                     elseif type(dst) == "table" then
