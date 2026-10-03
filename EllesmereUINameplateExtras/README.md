@@ -17,6 +17,8 @@ The Health Bar section uses the same layout as Cast Bar: a master **Override hea
 
 The border toggle preserves its saved color and thickness. Existing rules keep their previous appearance; a saved border size of zero remains off until enabled. Turning the health master off restores EUI color/texture and hides only the plugin's additional border. Whole-nameplate size/opacity and cast-bar overrides remain independent.
 
+Tap-denied enemies keep EUI's tapped health-bar color; this plugin suspends only its health-color override while another player has the tap.
+
 ## Cast-bar overrides
 
 Appearance is grouped into **Nameplate**, **Health Bar**, and **Cast Bar**. In the Cast Bar section, enable **Override cast bar** for the selected rule. Existing rules leave this off. Inactive controls remain visible but dimmed, with tooltips explaining what to enable.

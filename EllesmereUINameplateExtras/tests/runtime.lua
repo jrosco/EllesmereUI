@@ -2,6 +2,7 @@
 unpack = unpack or table.unpack
 local frames, timers = {}, {}
 local function Noop() end
+local tappedByOther = false
 function CreateFrame(kind, _, parentFrame)
     local frame = { events = {}, scripts = {}, scale = 1, alpha = 1, kind = kind, parent = parentFrame,
         vertexColor = { 1, 1, 1, 1 } }
@@ -63,6 +64,7 @@ function UnitPlayerControlled() return false end
 function UnitCanAttack() return true end
 function UnitIsUnit(unit, other) return unit == "nameplate1" and other == "target" end
 function UnitClassification() return "normal" end
+function UnitIsTapDenied() return tappedByOther end
 function UnitCastingInfo() return nil end
 function UnitChannelInfo() return nil end
 function geterrorhandler() return error end
@@ -421,6 +423,18 @@ assert(healthBorder.shown and plate.health.texture == "Interface\\Buttons\\WHITE
 assert(api.GetRules()[1].style.borderSize == 4)
 rows["Health-bar texture"].set("eui"); Flush()
 assert(plate.health.texture == "latest-health-engine", "Use EUI texture restores latest base")
+
+-- A tapped unit retains EUI's tap-denied health color; unrelated rule styling remains.
+plate.health:SetStatusBarColor(0.5, 0.5, 0.5, 1)
+Flush()
+tappedByOther = true
+Fire("UNIT_THREAT_LIST_UPDATE", "nameplate1")
+Near(plate.health.color[1], 0.5, "tapped color not overwritten")
+assert(healthBorder.shown, "tap protection only suppresses plugin health color")
+tappedByOther = false
+plate.health:SetStatusBarColor(0.25, 0.35, 0.45, 1)
+Flush()
+Near(plate.health.color[1], 0.4, "health color override resumes after tap denial")
 
 EllesmereUI.IsSearchPrebuild = function() return true end
 spec.modules[1].buildPage("Rules", {}, 0)

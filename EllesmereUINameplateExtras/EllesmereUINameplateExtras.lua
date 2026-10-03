@@ -220,6 +220,7 @@ local function GetTraits(unit)
         reaction = reaction,
         classification = classification,
         target = isTarget,
+        tapDenied = UnitIsTapDenied and SafeBool(UnitIsTapDenied(unit)),
         castState = castState,
         interruptible = interruptible,
         spellSchool = spellSchool,
@@ -337,13 +338,15 @@ local function ApplyStyle(plate)
             state.baseAlpha = plate:GetAlpha() / oldAlphaFactor
         end
     end
-    local rule = FindRule(unit)
+    local rule, _, traits = FindRule(unit)
     rule = rule and rule or nil
     if not rule then ResetStyle(plate, state); return end
     local style = rule.style or {}
     state.rule = rule
     state.writingHealth = true
-    if style.healthEnabled ~= false and style.healthColorEnabled and style.healthColor then
+    local applyHealthColor = style.healthEnabled ~= false
+        and style.healthColorEnabled and style.healthColor and traits.tapDenied ~= true
+    if applyHealthColor then
         local c = style.healthColor
         plate.health:SetStatusBarColor(c.r or 1, c.g or 1, c.b or 1, 1)
         state.hadColor = true
@@ -466,6 +469,7 @@ local events = {
     "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED",
     "PLAYER_TARGET_CHANGED", "PLAYER_FOCUS_CHANGED", "PLAYER_ENTERING_WORLD",
     "UNIT_FLAGS", "UNIT_FACTION", "UNIT_NAME_UPDATE",
+    "UNIT_THREAT_LIST_UPDATE",
     "UNIT_SPELLCAST_START", "UNIT_SPELLCAST_DELAYED", "UNIT_SPELLCAST_STOP", "UNIT_SPELLCAST_FAILED",
     "UNIT_SPELLCAST_INTERRUPTED", "UNIT_SPELLCAST_CHANNEL_START", "UNIT_SPELLCAST_CHANNEL_UPDATE", "UNIT_SPELLCAST_CHANNEL_STOP",
     "UNIT_SPELLCAST_EMPOWER_START", "UNIT_SPELLCAST_EMPOWER_UPDATE", "UNIT_SPELLCAST_EMPOWER_STOP",
