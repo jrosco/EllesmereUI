@@ -398,14 +398,16 @@ local function ReadCast(unit)
     local name, _, _, _, _, _, _, notInterruptible, spellID = UnitCastingInfo(unit)
     local castState = "casting"
     if type(name) == "nil" then
-        name, _, _, _, _, _, notInterruptible, spellID = UnitChannelInfo(unit)
+        local isEmpowered
+        name, _, _, _, _, _, notInterruptible, spellID, isEmpowered = UnitChannelInfo(unit)
         castState = "channel"
+        if SafeBool(isEmpowered) == true then
+            castState = "empowered"
+        elseif IsSecret(isEmpowered) or (type(isEmpowered) ~= "nil" and SafeBool(isEmpowered) == nil) then
+            castState = "unknown"
+        end
     end
     if type(name) == "nil" then return "none", "any", "unknown" end
-    if UnitEmpoweredChannelInfo then
-        local ok, empoweredName = pcall(UnitEmpoweredChannelInfo, unit)
-        if ok and type(empoweredName) ~= "nil" and not IsSecret(empoweredName) then castState = "empowered" end
-    end
     local interruptible = "unknown"
     if not IsSecret(notInterruptible) and type(notInterruptible) == "boolean" then
         interruptible = notInterruptible and "uninterruptible" or "interruptible"
@@ -426,7 +428,8 @@ local function GetTraits(unit, checkQuestObjective)
     local enemy = SafeBool(UnitCanAttack("player", unit))
     local reaction = enemy == true and "enemy" or "unknown"
     if enemy == false then reaction = "friendly" end
-    if enemy == false and UnitReaction then
+    -- Neutral takes precedence; attackability still handles duels and unknown reactions.
+    if UnitReaction then
         local value = UnitReaction("player", unit)
         if not IsSecret(value) and type(value) == "number" and value == 4 then reaction = "neutral" end
     end
@@ -511,7 +514,7 @@ local function Matches(rule, unit, traits)
         local predicate = addon.customConditions and addon.customConditions[key]
         if predicate then
             local ok, matches = pcall(predicate, unit, traits, expected, rule)
-            if not ok or not matches then return false end
+            if not ok or SafeBool(matches) ~= true then return false end
         elseif key ~= "unitType" and key ~= "reaction" and key ~= "classification"
            and key ~= "target" and key ~= "questObjective" and key ~= "castState" and key ~= "spellSchool" then
             return false

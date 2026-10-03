@@ -6,6 +6,16 @@ local tappedByOther = false
 local questObjective = false
 local playerName = "TestCharacter"
 local activeCast
+local traitMocks = {}
+local secretValue = {}
+local function TraitValue(key, default)
+    if traitMocks[key] ~= nil then return traitMocks[key] end
+    return default
+end
+-- Sentinels and flagged booleans exercise the guards, not Retail's secret VM semantics.
+function issecretvalue(value)
+    return value == secretValue or (traitMocks.secretBoolean == true and value == true)
+end
 function CreateFrame(kind, _, parentFrame)
     assert(parentFrame == nil or rawget(parentFrame, "nativeFrame"), "native UI parent required")
     local frame = { nativeFrame = true, events = {}, scripts = {}, scale = 1, alpha = 1, kind = kind, parent = parentFrame,
@@ -65,19 +75,22 @@ local function Fire(event, ...)
     Flush()
 end
 function UnitExists() return true end
-function UnitIsPlayer() return false end
+function UnitIsPlayer() return TraitValue("player", false) end
 function UnitFullName() return playerName, "TestRealm" end
 function UnitName() return playerName end
 function GetRealmName() return "TestRealm" end
-function UnitPlayerControlled() return false end
-function UnitCanAttack() return true end
-function UnitIsUnit(unit, other) return unit == "nameplate1" and other == "target" end
-function UnitClassification() return "normal" end
+function UnitPlayerControlled() return TraitValue("controlled", false) end
+function UnitCanAttack() return TraitValue("attackable", true) end
+function UnitReaction() return traitMocks.reaction end
+function UnitIsUnit(unit, other) return TraitValue("target", unit == "nameplate1" and other == "target") end
+function UnitClassification() return TraitValue("classification", "normal") end
 function UnitIsTapDenied() return tappedByOther end
 function UnitCastingInfo()
+    if traitMocks.casting then return unpack(traitMocks.casting, 1, 9) end
     if activeCast == "casting" then return "Test Spell", nil, nil, nil, nil, nil, nil, false, 123 end
 end
 function UnitChannelInfo()
+    if traitMocks.channel then return unpack(traitMocks.channel, 1, 9) end
     if activeCast == "channel" then return "Test Channel", nil, nil, nil, nil, nil, false, 456 end
 end
 function geterrorhandler() return error end
@@ -162,6 +175,9 @@ assert(loadfile("EllesmereUINameplateExtras/EllesmereUINameplateExtras_CastStyle
 assert(EllesmereUINameplateExtrasDB == nil, "new SavedVariables initialized before ADDON_LOADED")
 local api = EllesmereUINameplateExtras
 assert(api, "public API missing")
+if ... == "traits" then
+    return { api = api, namespace = namespace, mocks = traitMocks, secret = secretValue }
+end
 
 -- Model the fresh Extras SavedVariables loading after addon chunks execute.
 EllesmereUINameplateExtrasDB = Settings("Loaded rule", 150, 0.2)
