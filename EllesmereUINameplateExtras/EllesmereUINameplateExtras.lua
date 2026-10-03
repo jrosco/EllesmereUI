@@ -38,26 +38,180 @@ local function MergeMissing(dst, src)
     end
 end
 
-local db
-local function GetSettings()
-    local saved = _G.EllesmereUINameplateExtrasDB
-    if db and db == saved then return db end
-    -- SavedVariables may replace the global after this file's main chunk runs.
-    -- Both the renderer and options must resolve the same current table.
-    if type(saved) ~= "table" then saved = {} end
-    if type(saved.rules) ~= "table" or #saved.rules == 0 then saved.rules = Copy(DEFAULT_RULES) end
-    for _, rule in ipairs(saved.rules) do
+local db                 -- active named profile's settings
+local profileStore       -- SavedVariables root: profiles + character->profile assignments
+local activeCharacterKey
+local activeProfileName = "Default"
+local QueueRefresh
+local DEFAULT_PROFILE = { enabled = true, selectedRule = 1, rules = DEFAULT_RULES }
+local MAX_RULES = 12
+local MAX_PROFILES = 24
+
+local function CurrentCharacterKey()
+    local name, realm
+    if UnitFullName then name, realm = UnitFullName("player") end
+    if type(name) ~= "string" or name == "" then name = UnitName and UnitName("player") end
+    if type(name) ~= "string" or name == "" then return nil end
+    if type(realm) ~= "string" or realm == "" then realm = GetRealmName and GetRealmName() or "" end
+    return realm ~= "" and (name .. " - " .. realm) or name
+end
+
+local function NormalizeProfile(profile)
+    if type(profile) ~= "table" then profile = {} end
+    if profile.enabled == nil then profile.enabled = DEFAULT_PROFILE.enabled end
+    if profile.selectedRule == nil then profile.selectedRule = DEFAULT_PROFILE.selectedRule end
+    if type(profile.rules) ~= "table" or #profile.rules == 0 then profile.rules = Copy(DEFAULT_RULES) end
+    for index, rule in ipairs(profile.rules) do
+        if type(rule) ~= "table" then
+            rule = {}
+            profile.rules[index] = rule
+        end
         if type(rule.conditions) ~= "table" then rule.conditions = {} end
         if type(rule.style) ~= "table" then rule.style = {} end
         MergeMissing(rule.conditions, DEFAULT_RULES[1].conditions)
         MergeMissing(rule.style, DEFAULT_RULES[1].style)
         if rule.enabled == nil then rule.enabled = true end
     end
-    saved.selectedRule = math.max(1, math.min(tonumber(saved.selectedRule) or 1, #saved.rules))
-    db = saved
+    profile.selectedRule = math.max(1, math.min(tonumber(profile.selectedRule) or 1, #profile.rules))
+    return profile
+end
+
+local function GetSettings()
+    local saved = _G.EllesmereUINameplateExtrasDB
+    if type(saved) ~= "table" then saved = {} end
+    local characterKey = CurrentCharacterKey()
+    if profileStore == saved and db and characterKey == activeCharacterKey
+       and saved.profiles and saved.profiles[activeProfileName] == db
+       and (not characterKey or saved.characterProfiles[characterKey] == activeProfileName) then
+        return db
+    end
+    if type(saved.profiles) ~= "table" then
+        -- First upgrade from the pre-profile layout: keep existing rules as
+        -- the shared Default profile rather than resetting the user's setup.
+        local oldDefault
+        if type(saved.rules) == "table" then
+            oldDefault = {
+                rules = saved.rules,
+                enabled = saved.enabled,
+                selectedRule = saved.selectedRule,
+            }
+        end
+        saved.profiles = { Default = oldDefault or Copy(DEFAULT_PROFILE) }
+    end
+    if type(saved.characterProfiles) ~= "table" then saved.characterProfiles = {} end
+    if type(saved.profiles.Default) ~= "table" then saved.profiles.Default = Copy(DEFAULT_PROFILE) end
+    for name, profile in pairs(saved.profiles) do
+        if type(name) ~= "string" or name == "" then
+            saved.profiles[name] = nil
+        else
+            saved.profiles[name] = NormalizeProfile(profile)
+        end
+    end
+    saved.rules, saved.enabled, saved.selectedRule = nil, nil, nil
+    local selectedProfile = characterKey and saved.characterProfiles[characterKey] or "Default"
+    if type(selectedProfile) ~= "string" or type(saved.profiles[selectedProfile]) ~= "table" then
+        selectedProfile = "Default"
+    end
+    if characterKey then saved.characterProfiles[characterKey] = selectedProfile end
+    profileStore = saved
+    activeCharacterKey = characterKey
+    activeProfileName = selectedProfile
+    db = saved.profiles[selectedProfile]
+    addon.db = { sv = saved, folder = addonName, profile = db, profileName = selectedProfile }
     _G.EllesmereUINameplateExtrasDB = saved
-    addon.db = db
     return db
+end
+
+local function ProfileInfo()
+    GetSettings()
+    local names, other = { "Default" }, {}
+    for name in pairs(profileStore.profiles) do
+        if name ~= "Default" then other[#other + 1] = name end
+    end
+    table.sort(other, function(a, b) return a:lower() < b:lower() end)
+    for _, name in ipairs(other) do names[#names + 1] = name end
+    return {
+        character = activeCharacterKey or "Character not available yet",
+        active = activeProfileName,
+        names = names,
+        canManage = activeCharacterKey ~= nil,
+    }
+end
+
+local function CleanProfileName(name)
+    if type(name) ~= "string" then return nil, "Enter a profile name." end
+    name = name:gsub("|", ""):gsub("%c", " "):gsub("%s+", " "):gsub("^%s+", ""):gsub("%s+$", "")
+    if name == "" then return nil, "Profile names cannot be blank." end
+    if #name > 32 then return nil, "Profile names must be 32 characters or fewer." end
+    if name:lower() == "default" then return nil, "Default is reserved for the shared default profile." end
+    return name
+end
+
+local function FindProfileName(name)
+    local lower = name:lower()
+    for existing in pairs(profileStore.profiles) do
+        if existing:lower() == lower then return existing end
+    end
+end
+
+local function SelectCharacterProfile(name)
+    GetSettings()
+    if not activeCharacterKey then return false, "The character name is not available yet." end
+    if type(name) ~= "string" or type(profileStore.profiles[name]) ~= "table" then
+        return false, "That Nameplate Extras profile does not exist."
+    end
+    profileStore.characterProfiles[activeCharacterKey] = name
+    GetSettings()
+    if QueueRefresh then QueueRefresh() end
+    return true
+end
+
+local function CreateCharacterProfile(name)
+    GetSettings()
+    if not activeCharacterKey then return false, "The character name is not available yet." end
+    name = CleanProfileName(name)
+    if not name then return false, "Enter a valid profile name (1-32 characters)." end
+    if FindProfileName(name) then return false, "A profile with that name already exists." end
+    local count = 0
+    for _ in pairs(profileStore.profiles) do count = count + 1 end
+    if count >= MAX_PROFILES then return false, ("You can have up to %d profiles."):format(MAX_PROFILES) end
+    profileStore.profiles[name] = Copy(DEFAULT_PROFILE)
+    profileStore.characterProfiles[activeCharacterKey] = name
+    GetSettings()
+    if QueueRefresh then QueueRefresh() end
+    return true
+end
+
+local function RenameCharacterProfile(name)
+    GetSettings()
+    local oldName = activeProfileName
+    if oldName == "Default" then return false, "The shared Default profile cannot be renamed." end
+    name = CleanProfileName(name)
+    if not name then return false, "Enter a valid profile name (1-32 characters)." end
+    local existing = FindProfileName(name)
+    if existing and existing ~= oldName then return false, "A profile with that name already exists." end
+    if name == oldName then return true end
+    profileStore.profiles[name] = profileStore.profiles[oldName]
+    profileStore.profiles[oldName] = nil
+    for character, profileName in pairs(profileStore.characterProfiles) do
+        if profileName == oldName then profileStore.characterProfiles[character] = name end
+    end
+    GetSettings()
+    if QueueRefresh then QueueRefresh() end
+    return true
+end
+
+local function DeleteCharacterProfile()
+    GetSettings()
+    local oldName = activeProfileName
+    if oldName == "Default" then return false, "The shared Default profile cannot be deleted." end
+    profileStore.profiles[oldName] = nil
+    for character, profileName in pairs(profileStore.characterProfiles) do
+        if profileName == oldName then profileStore.characterProfiles[character] = "Default" end
+    end
+    GetSettings()
+    if QueueRefresh then QueueRefresh() end
+    return true
 end
 
 addon.defaultRules = DEFAULT_RULES
@@ -69,7 +223,6 @@ local states = setmetatable({}, { __mode = "k" })
 local hooked = setmetatable({}, { __mode = "k" })
 local spellSchools = {}
 local combatLogActive = false
-local MAX_RULES = 12
 
 local function TryRegisterEvent(frame, event)
     local ok, registered = pcall(frame.RegisterEvent, frame, event)
@@ -429,7 +582,7 @@ local function RefreshAll()
     for _, plate in pairs(NP.friendlyPlates or {}) do ApplySafely(plate) end
 end
 
-local function QueueRefresh()
+QueueRefresh = function()
     if queued then return end
     queued = true
     C_Timer.After(0, function()
@@ -558,6 +711,12 @@ local publicAPI = {
     RegisterSpellSchool = addon.RegisterSpellSchool,
     GetSettings = GetSettings,
     GetRules = function() return GetSettings().rules end,
+    GetProfileInfo = ProfileInfo,
+    SelectProfile = SelectCharacterProfile,
+    CreateProfile = CreateCharacterProfile,
+    RenameProfile = RenameCharacterProfile,
+    DeleteProfile = DeleteCharacterProfile,
+    MaxProfiles = MAX_PROFILES,
     MaxRules = MAX_RULES,
     DefaultRules = DEFAULT_RULES,
 }

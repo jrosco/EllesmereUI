@@ -4,6 +4,7 @@ local frames, timers = {}, {}
 local function Noop() end
 local tappedByOther = false
 local questObjective = false
+local playerName = "TestCharacter"
 function CreateFrame(kind, _, parentFrame)
     local frame = { events = {}, scripts = {}, scale = 1, alpha = 1, kind = kind, parent = parentFrame,
         vertexColor = { 1, 1, 1, 1 } }
@@ -61,6 +62,9 @@ local function Fire(event, ...)
 end
 function UnitExists() return true end
 function UnitIsPlayer() return false end
+function UnitFullName() return playerName, "TestRealm" end
+function UnitName() return playerName end
+function GetRealmName() return "TestRealm" end
 function UnitPlayerControlled() return false end
 function UnitCanAttack() return true end
 function UnitIsUnit(unit, other) return unit == "nameplate1" and other == "target" end
@@ -139,7 +143,10 @@ assert(api, "public API missing")
 -- Model the fresh Extras SavedVariables loading after addon chunks execute.
 EllesmereUINameplateExtrasDB = Settings("Loaded rule", 150, 0.2)
 Fire("ADDON_LOADED", "EllesmereUINameplateExtras")
-assert(api.GetSettings() == EllesmereUINameplateExtrasDB)
+assert(api.GetSettings() == EllesmereUINameplateExtrasDB.profiles.Default)
+assert(api.GetProfileInfo().character == "TestCharacter - TestRealm")
+assert(api.GetProfileInfo().active == "Default")
+assert(EllesmereUINameplateExtrasDB.characterProfiles["TestCharacter - TestRealm"] == "Default")
 assert(namespace.FindRule("nameplate1").name == "Loaded rule")
 Near(plate.scale, 1.5, "saved scale")
 Near(plate.health.color[1], 0.2, "saved color")
@@ -147,10 +154,54 @@ Near(plate.health.color[1], 0.2, "saved color")
 -- Replacing the table must not leave the renderer reading its previous rules.
 EllesmereUINameplateExtrasDB = Settings("Replacement rule", 115, 0.6)
 api.Refresh(); Flush()
-assert(api.GetRules() == EllesmereUINameplateExtrasDB.rules)
-assert(namespace.db == EllesmereUINameplateExtrasDB)
+assert(api.GetRules() == EllesmereUINameplateExtrasDB.profiles.Default.rules)
+assert(namespace.db.profile == EllesmereUINameplateExtrasDB.profiles.Default)
 Near(plate.scale, 1.15, "replacement scale")
 Near(plate.health.color[1], 0.6, "replacement color")
+
+-- The shared Default is the starting point, and character assignments are independent.
+api.GetSettings().rules[1].name = "Shared Default"
+local created, profileError = api.CreateProfile("Tank")
+assert(created, tostring(profileError) .. "; character=" .. tostring(api.GetProfileInfo().character))
+assert(api.GetProfileInfo().active == "Tank")
+assert(api.GetSettings().rules[1].name == "Current Target", "new profile should start with built-in rules")
+Near(api.GetSettings().rules[1].style.healthColor.r, 0.12, "new profile built-in health color")
+api.GetSettings().rules[1].name = "Tank Rule"
+playerName = "AltCharacter"
+assert(api.GetProfileInfo().active == "Default", "new character should start on shared Default")
+assert(api.GetSettings().rules[1].name == "Shared Default", "Default isn't shared across characters")
+local selected, selectError = api.SelectProfile("Tank")
+assert(selected, selectError)
+assert(api.GetSettings().rules[1].name == "Tank Rule")
+api.GetSettings().rules[1].name = "Shared Tank Rule"
+playerName = "TestCharacter"
+assert(api.GetProfileInfo().active == "Tank" and api.GetSettings().rules[1].name == "Shared Tank Rule",
+    "named profile should be shared by characters assigned to it")
+local renamedShared, renameSharedError = api.RenameProfile("Main Tank")
+assert(renamedShared, renameSharedError)
+assert(api.GetProfileInfo().active == "Main Tank")
+local createdOther, createOtherError = api.CreateProfile("DPS")
+assert(createdOther, createOtherError)
+assert(api.GetSettings().rules[1].name == "Current Target", "new profile should use fresh built-in rules")
+local renamedProfile, renameError = api.RenameProfile("Raid")
+assert(renamedProfile, renameError)
+assert(api.GetProfileInfo().active == "Raid")
+local deletedProfile, deleteError = api.DeleteProfile()
+assert(deletedProfile, deleteError)
+assert(api.GetProfileInfo().active == "Default" and api.GetSettings().rules[1].name == "Shared Default",
+    "deleting an assigned profile should return this character to Default")
+playerName = "AltCharacter"
+assert(api.GetProfileInfo().active == "Main Tank", "renaming a shared profile should update its other character assignment")
+local deletedShared, deleteSharedError = api.DeleteProfile()
+assert(deletedShared, deleteSharedError)
+playerName = "TestCharacter"
+assert(api.GetProfileInfo().active == "Default", "deleting a shared profile should return all assigned characters to Default")
+assert(not api.DeleteProfile(), "Default profile should not be deletable")
+assert(not api.RenameProfile("Renamed Default"), "Default profile should not be renamable")
+playerName = "AltCharacter"
+assert(api.GetProfileInfo().active == "Default")
+playerName = "TestCharacter"
+
 for _ = 1, 10 do
     plate:ApplyScale()
     api.Refresh(); Flush()
@@ -181,6 +232,15 @@ function W:Button(_, text, y, click)
     if EllesmereUI.IsSearchPrebuild() then return {}, 50 end
     return row, 50
 end
+function W:WideButton(_, text, _, click)
+    rows[text] = { click = click }
+    return {}, 62
+end
+function W:WideDualButton(_, first, second, _, onFirst, onSecond, _)
+    rows[first] = { click = onFirst }
+    rows[second] = { click = onSecond }
+    return {}, 60
+end
 function W:Toggle(_, text, _, get, set) rows[text] = { get = get, set = set }; return {}, 50 end
 function W:Slider(_, text, _, _, _, _, get, set) rows[text] = { get = get, set = set }; return {}, 50 end
 function W:Dropdown(_, text, _, values, get, set) rows[text] = { get = get, set = set, values = values }; return {}, 50 end
@@ -196,6 +256,23 @@ function W:ColorPicker(_, text, _, get, set)
     rows[text] = { get = get, set = set }
     return {}, 50
 end
+local wirePayloads, wireSerial = {}, 0
+local function CloneWire(value)
+    if type(value) ~= "table" then return value end
+    local result = {}
+    for key, item in pairs(value) do result[key] = CloneWire(item) end
+    return result
+end
+local deflate = {
+    CompressDeflate = function(_, value) return value end,
+    EncodeForPrint = function(_, value) return value end,
+    DecodeForPrint = function(_, value) return value end,
+    DecompressDeflate = function(_, value) return value end,
+}
+function LibStub(name)
+    if name == "LibDeflate" then return deflate end
+end
+local exportedPopup, importedPopup, legacyImportPopup
 EllesmereUI = {
     Widgets = W,
     ResolveTexturePath = function(textureTable, key, fallback) return textureTable[key] or fallback end,
@@ -205,18 +282,76 @@ EllesmereUI = {
         Point = function(frame, ...) frame:SetPoint(...) end,
     },
     IsSearchPrebuild = function() return false end,
+    _Serializer = {
+        Serialize = function(payload)
+            wireSerial = wireSerial + 1
+            wirePayloads[tostring(wireSerial)] = CloneWire(payload)
+            return tostring(wireSerial)
+        end,
+        Deserialize = function(value) return CloneWire(wirePayloads[value]) end,
+    },
+    ShowCopyPopup = function(_, title, subtitle, code)
+        exportedPopup = { title = title, subtitle = subtitle, code = code }
+    end,
+    ShowImportStringPopup = function(_, title, subtitle, confirmText, callback)
+        importedPopup = { title = title, subtitle = subtitle, confirmText = confirmText, onConfirm = callback }
+    end,
+    ShowInputPopup = function(_, options) legacyImportPopup = options end,
+    PrintError = Noop,
+    Print = Noop,
     RegisterPlugin = function(id, value) registeredID = id; spec = value; return true end,
     IsPluginRegistered = function() return false end,
     GetPluginModuleKey = function() return "plugin:test:Styles" end,
     InvalidateModulePageCache = Noop,
     RefreshPage = function() spec.modules[1].buildPage("Rules", parent, 0) end,
 }
+assert(loadfile("EllesmereUINameplateExtras/EllesmereUINameplateExtras_RuleIO.lua"))()
 assert(loadfile("EllesmereUINameplateExtras/EllesmereUINameplateExtras_Options.lua"))()
 Fire("PLAYER_LOGIN")
 assert(registeredID == "EllesmereUINameplateExtras")
 assert(spec.label == "Nameplate Extras")
 assert(spec.modules[1].key == "NameplateStyle" and spec.modules[1].title == "Nameplate Style")
+assert(spec.modules[1].pages[2] == "Profiles" and spec.modules[1].pages[3] == "Sharing")
 spec.modules[1].buildPage("Rules", parent, 0)
+
+spec.modules[1].buildPage("Profiles", parent, 0)
+assert(rows["Profile for this character"].values.Default,
+    "Profiles page doesn't list the shared Default profile")
+rows["Create Profile"].click()
+assert(legacyImportPopup and legacyImportPopup.title == "Create Nameplate Profile")
+legacyImportPopup.onConfirm("UI Test Profile")
+assert(api.GetProfileInfo().active == "UI Test Profile", "Profiles tab didn't create/select its profile")
+assert(api.GetSettings().rules[1].name == "Current Target", "Profiles tab didn't create a fresh profile")
+rows["Profile for this character"].set("Default")
+assert(api.GetProfileInfo().active == "Default", "Profiles tab didn't switch back to Default")
+spec.modules[1].buildPage("Rules", parent, 0)
+local ruleCode = assert(api.ExportRuleSet())
+assert(ruleCode:sub(1, 17) == "!EUI_NPEX_RULES1!", "standalone export prefix missing")
+spec.modules[1].buildPage("Sharing", parent, 0)
+rows["Export Rule Set"].click()
+assert(exportedPopup and exportedPopup.code:sub(1, 17) == "!EUI_NPEX_RULES1!",
+    "export action didn't display the share code")
+rows["Import Rule Set"].click()
+assert(importedPopup and importedPopup.title == "Import Nameplate Rules"
+    and importedPopup.confirmText == "Import Rules", "import should use the shared scrollable string popup")
+local exportedRuleName = api.GetRules()[1].name
+api.GetRules()[1].name = "Temporary edit"
+local importOK, importError = api.ImportRuleSet(ruleCode)
+assert(importOK, importError)
+assert(api.GetRules()[1].name == exportedRuleName, "import didn't restore the exported rules")
+local currentRules = api.GetRules()
+local invalidOK = api.ImportRuleSet("not a rule-set code")
+assert(not invalidOK and api.GetRules() == currentRules, "invalid import replaced the live rules")
+importedPopup.onConfirm(ruleCode)
+assert(api.GetRules()[1].name == exportedRuleName, "paste popup didn't apply the exported rules")
+local scrollImportPopup = EllesmereUI.ShowImportStringPopup
+EllesmereUI.ShowImportStringPopup = nil -- emulate a Retail EUI install predating this helper
+rows["Import Rule Set"].click()
+assert(legacyImportPopup and legacyImportPopup.maxLetters == api.RuleSetMaxCodeLength,
+    "older EUI should use the compatible one-line import field")
+legacyImportPopup.onConfirm(ruleCode)
+assert(api.GetRules()[1].name == exportedRuleName, "legacy EUI import fallback failed")
+EllesmereUI.ShowImportStringPopup = scrollImportPopup
 assert(rows["Health-bar texture"].values.melli == "Melli")
 assert(rows["Cast-bar texture"].values["sm:Test Texture"] == "Test Texture")
 local function HasHeader(prefix, suffix)
@@ -225,11 +360,11 @@ local function HasHeader(prefix, suffix)
     end
     return false
 end
-assert(HasHeader("RULE ORDER - POSITION 1 OF 1", "(Replacement rule)"), table.concat(sectionHeaders, " | "))
-assert(HasHeader("MATCH CONDITIONS", "(Replacement rule)"))
-assert(HasHeader("APPEARANCE - NAMEPLATE", "(Replacement rule)"))
-assert(HasHeader("APPEARANCE - HEALTH BAR", "(Replacement rule)"))
-assert(HasHeader("APPEARANCE - CAST BAR", "(Replacement rule)"))
+assert(HasHeader("RULE ORDER - POSITION 1 OF 1", "(Shared Default)"), table.concat(sectionHeaders, " | "))
+assert(HasHeader("MATCH CONDITIONS", "(Shared Default)"))
+assert(HasHeader("APPEARANCE - NAMEPLATE", "(Shared Default)"))
+assert(HasHeader("APPEARANCE - HEALTH BAR", "(Shared Default)"))
+assert(HasHeader("APPEARANCE - CAST BAR", "(Shared Default)"))
 local actions = { "Add Rule", "Copy Rule", "Delete Rule", "Move Rule Up", "Move Rule Down" }
 for index, text in ipairs(actions) do
     local action = rows[text]
@@ -279,9 +414,9 @@ assert(copy.conditions.target == renamed.conditions.target and copy.style.scale 
 assert(api.GetSettings().selectedRule == 2 and rows["Rule name"].get() == copy.name,
     "copy was not selected for editing")
 rows["Edit rule"].set("3")
-assert(HasHeader("RULE ORDER - POSITION 3 OF 3", "(Replacement rule)"))
+assert(HasHeader("RULE ORDER - POSITION 3 OF 3", "(Shared Default)"))
 oldNameField.set("Target Rule")
-assert(renamed.name == "Target Rule" and api.GetRules()[3].name == "Replacement rule",
+assert(renamed.name == "Target Rule" and api.GetRules()[3].name == "Shared Default",
     "focus-loss commit renamed the wrong rule")
 rows["Edit rule"].set("1")
 assert(rows["Rule name"].get() == "Target Rule", "rename lost after page rebuild")
@@ -312,7 +447,7 @@ rows["Health-bar color"].set(0.4, 0.5, 0.6)
 Flush()
 Near(plate.scale, 1.3, "cached options use current settings")
 Near(plate.health.color[1], 0.4, "cached color picker uses current settings")
-assert(namespace.db == EllesmereUINameplateExtrasDB)
+assert(namespace.db.profile == EllesmereUINameplateExtrasDB.profiles.Default)
 
 rows["Add Rule"].click(); Flush()
 rows["Delete Rule"].click(); Flush()

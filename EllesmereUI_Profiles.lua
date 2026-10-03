@@ -4648,6 +4648,19 @@ function EllesmereUI:ShowCopyPopup(title, subtitle, str)
     end)
 end
 
+-- Shared scrollable string-input popup for addon-specific standalone imports.
+-- Uses the same multiline editor, scrollbar and large-paste absorber as profile imports.
+function EllesmereUI:ShowImportStringPopup(title, subtitle, confirmText, onConfirm)
+    if type(onConfirm) ~= "function" then return end
+    local dimmer, editBox = BuildStringPopup(
+        title or "Import",
+        subtitle or "Paste the complete code below",
+        false, onConfirm, confirmText or "Import")
+    dimmer:Show()
+    C_Timer.After(0.05, function() editBox:SetFocus() end)
+    return dimmer
+end
+
 -------------------------------------------------------------------------------
 --  Apply a Blizzard Edit Mode layout from a preset's export string.
 --  Decodes the string with C_EditMode.ConvertStringToLayoutInfo, writes it into

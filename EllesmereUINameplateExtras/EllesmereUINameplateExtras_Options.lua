@@ -89,6 +89,139 @@ local function Rebuild()
     EllesmereUI:RefreshPage(true)
 end
 
+local function ExportRuleSet()
+    local code, err = addon.ExportRuleSet()
+    if not code then
+        EllesmereUI.PrintError(err or "Could not export Nameplate Extras rules.")
+        return
+    end
+    EllesmereUI:ShowCopyPopup("Export Nameplate Rules", "Copy this code to share the rule set between characters.", code)
+end
+
+local function ImportRuleSet()
+    local function OnImport(code)
+        local ok, err = addon.ImportRuleSet(code)
+        if not ok then
+            EllesmereUI.PrintError(err or "Could not import Nameplate Extras rules.")
+            return
+        end
+        Rebuild()
+        EllesmereUI.Print("Nameplate Extras rules imported.")
+    end
+    if EllesmereUI.ShowImportStringPopup then
+        EllesmereUI:ShowImportStringPopup(
+            "Import Nameplate Rules",
+            "Paste a rule-set code from another character. Import replaces this profile's current rules.",
+            "Import Rules", OnImport)
+    elseif EllesmereUI.ShowInputPopup then
+        -- Older EUI builds do not yet include the scrollable import/export-style
+        -- popup. Keep import usable there with the standard one-line code field.
+        EllesmereUI:ShowInputPopup({
+            title = "Import Nameplate Rules",
+            message = "Paste the complete rule-set code. Import replaces this profile's current rules.",
+            placeholder = "Paste rule-set code here...",
+            confirmText = "Import Rules",
+            cancelText = "Cancel",
+            maxLetters = addon.RuleSetMaxCodeLength or 64000,
+            onConfirm = OnImport,
+        })
+    else
+        EllesmereUI.PrintError("Update EllesmereUI to import Nameplate Extras rule sets.")
+    end
+end
+
+local function ProfilePrompt(title, initialText, confirmText, submit)
+    EllesmereUI:ShowInputPopup({
+        title = title,
+        message = title:find("^Create")
+            and "New profiles start with the built-in default rules and settings. Profiles are shared by name across characters. Use 1-32 characters."
+            or "Profiles are shared by name across characters. Use 1-32 characters.",
+        placeholder = "Enter profile name...",
+        initialText = initialText or "",
+        maxLetters = 32,
+        confirmText = confirmText,
+        cancelText = "Cancel",
+        onConfirm = function(name)
+            local ok, err = submit(name)
+            if not ok then
+                EllesmereUI.PrintError(err or "Could not update Nameplate Extras profiles.")
+                return
+            end
+            Changed()
+            Rebuild()
+        end,
+    })
+end
+
+local function BuildProfilesPage(parent, yOffset)
+    local W = EllesmereUI.Widgets
+    local y = yOffset
+    local _, h
+    local info = addon.GetProfileInfo()
+    _, h = W:SectionHeader(parent, "CHARACTER PROFILE - " .. info.character, y); y = y - h
+
+    local values, order = {}, {}
+    for _, name in ipairs(info.names) do
+        values[name] = name
+        order[#order + 1] = name
+    end
+    _, h = W:Dropdown(parent, "Profile for this character", y, values,
+        function() return addon.GetProfileInfo().active end,
+        function(name)
+            local ok, err = addon.SelectProfile(name)
+            if not ok then EllesmereUI.PrintError(err or "Could not select profile."); return end
+            Changed()
+            Rebuild()
+        end, order,
+        "Each character chooses a profile. Default is shared by characters that have not selected another profile; assigning the same named profile to multiple characters shares those rules.")
+    y = y - h
+
+        _, h = W:SectionHeader(parent, "MANAGE PROFILES", y); y = y - h
+        if info.active == "Default" then
+        _, h = W:WideButton(parent, "Create Profile", y,
+            function() ProfilePrompt("Create Nameplate Profile", nil, "Create", addon.CreateProfile) end, 420)
+        y = y - h
+        _, h = W:SectionHeader(parent, "DEFAULT IS SHARED AND CANNOT BE RENAMED OR DELETED", y); y = y - h
+    else
+        _, h = W:WideDualButton(parent, "Create Profile", "Rename Profile", y,
+            function() ProfilePrompt("Create Nameplate Profile", nil, "Create", addon.CreateProfile) end,
+            function() ProfilePrompt("Rename Nameplate Profile", info.active, "Rename", addon.RenameProfile) end,
+            210)
+        y = y - h
+        _, h = W:WideButton(parent, "Delete Active Profile", y, function()
+            EllesmereUI:ShowConfirmPopup({
+                title = "Delete Nameplate Profile?",
+                message = ("Delete '%s'? Characters using it will switch to Default."):format(info.active),
+                confirmText = "Delete Profile",
+                cancelText = "Cancel",
+                onConfirm = function()
+                    local ok, err = addon.DeleteProfile()
+                    if not ok then EllesmereUI.PrintError(err or "Could not delete profile."); return end
+                    Changed()
+                    Rebuild()
+                end,
+            })
+        end, 420)
+        y = y - h
+    end
+
+    return math.abs(y)
+end
+
+local function BuildSharingPage(parent, yOffset)
+    local W = EllesmereUI.Widgets
+    local y = yOffset
+    local _, h
+    _, h = W:SectionHeader(parent, "SHARE THIS PROFILE'S RULES", y); y = y - h
+    _, h = W:SectionHeader(parent,
+        "Export creates a copyable code. Import replaces the rules in the selected character profile.", y)
+    y = y - h
+    _, h = W:WideDualButton(parent, "Export Rule Set", "Import Rule Set", y,
+        ExportRuleSet, ImportRuleSet, 230)
+    y = y - h
+    return math.abs(y)
+end
+
 local function NewRule(index)
     return {
         name = "Custom Rule " .. index,
@@ -426,8 +559,10 @@ local function Register()
                 key = "NameplateStyle",
                 title = "Nameplate Style",
                 description = "Rule-based nameplate styling by unit, target, cast and rank.",
-                pages = { "Rules", "About" },
+                pages = { "Rules", "Profiles", "Sharing", "About" },
                 buildPage = function(pageName, parent, yOffset)
+                    if pageName == "Profiles" then return BuildProfilesPage(parent, yOffset) end
+                    if pageName == "Sharing" then return BuildSharingPage(parent, yOffset) end
                     if pageName == "About" then return BuildAboutPage(parent, yOffset) end
                     return BuildRulesPage(parent, yOffset)
                 end,

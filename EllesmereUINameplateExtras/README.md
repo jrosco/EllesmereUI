@@ -3,6 +3,10 @@
 
 This extensible add-on currently provides one feature: **Nameplate Style**. It adds a **Nameplate Extras > Nameplate Style** section using `EllesmereUI.RegisterPlugin`; it does not modify the built-in Nameplates options page.
 
+## Character profiles
+
+The **Profiles** tab assigns a named rules profile to each character. **Default** is shared by characters that have not selected another profile. Creating a profile starts with the built-in default rules and appearance settings, then assigns only the current character; selecting the same named profile on other characters shares its rules with them. Renaming or deleting a named profile updates every character assigned to it. EUI's own active profile does not control these assignments; use **Copy Rule** to duplicate an individual rule.
+
 ## Included rules
 
 Three starter rules are enabled: current target, elite enemy, and enemy casting. Add up to 12 rules, copy the selected rule, edit their conditions and visual effects, and move them to change priority. A copy is inserted after its source and selected for editing. New rules start enabled for the current target. The first enabled matching rule wins.
@@ -44,6 +48,10 @@ EllesmereUINameplateExtras.GetRules()
 ```
 
 `RegisterCondition(key, predicate)` adds a custom matcher for a corresponding key stored in a rule's `conditions` table. Predicates receive `(unitToken, traits, expectedValue, rule)` and should return `true` for a match. `RegisterSpellSchool(spellID, school)` can seed school metadata (`physical`, `holy`, `fire`, `nature`, `frost`, `shadow`, `arcane`, or `mixed`). After changing a rule programmatically, call `Refresh()`.
+
+## Standalone rule-set sharing
+
+The **Sharing** tab is separate from rule editing. Use **Export Rule Set** to open a copyable code, then paste it on another character with **Import Rule Set**. The code contains only the rule list (names, conditions, and appearance settings); importing replaces the currently selected character profile's rules and selects the first one. It does not import the profile assignment or global enable toggle. Codes use the `!EUI_NPEX_RULES1!` prefix and do not use EUI's full profile import/export.
 
 ## Diagnostics and tests
 
