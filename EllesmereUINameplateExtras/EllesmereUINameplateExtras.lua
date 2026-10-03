@@ -8,6 +8,10 @@ local MULTI_CONDITION_VALUES = {
     castState = { none = true, casting = true, channel = true, empowered = true, interruptible = true, uninterruptible = true },
     spellSchool = { physical = true, holy = true, fire = true, nature = true, frost = true, shadow = true, arcane = true, mixed = true },
 }
+local SCALAR_CONDITION_VALUES = {
+    questObjective = { any = true, yes = true, no = true },
+}
+local DEFAULT_CONDITIONS = { questObjective = "any" }
 
 local DEFAULT_RULES = {
     {
@@ -79,10 +83,37 @@ end
 
 local function NormalizeRuleConditions(rule)
     if type(rule.conditions) ~= "table" then rule.conditions = {} end
-    MergeMissing(rule.conditions, DEFAULT_RULES[1].conditions)
+    -- Selection sets are atomic: empty/missing means Any, never starter-rule values.
     for key, allowed in pairs(MULTI_CONDITION_VALUES) do
         rule.conditions[key] = NormalizeMultiCondition(rule.conditions[key], allowed)
     end
+    for key, default in pairs(DEFAULT_CONDITIONS) do
+        if rule.conditions[key] == nil then rule.conditions[key] = default end
+    end
+    return rule
+end
+
+local function ValidateRuleConditions(conditions)
+    if type(conditions) ~= "table" then return false, "conditions" end
+    for key, allowed in pairs(SCALAR_CONDITION_VALUES) do
+        local value = conditions[key]
+        if value ~= nil and (type(value) ~= "string" or not allowed[value]) then return false, key end
+    end
+    for key, allowed in pairs(MULTI_CONDITION_VALUES) do
+        local value = conditions[key]
+        if value ~= nil then
+            local valid = type(value) == "string" and (value == "any" or allowed[value])
+            if type(value) == "table" then
+                valid = true
+                for choice, selected in pairs(value) do
+                    if not allowed[choice] or selected ~= true then valid = false; break end
+                end
+            end
+            if not valid then return false, key end
+        end
+    end
+    -- Extension-owned keys are preserved and validated by RuleIO's safe-tree check.
+    return true
 end
 
 local function NormalizeProfile(profile)
@@ -95,7 +126,6 @@ local function NormalizeProfile(profile)
             rule = {}
             profile.rules[index] = rule
         end
-        if type(rule.conditions) ~= "table" then rule.conditions = {} end
         if type(rule.style) ~= "table" then rule.style = {} end
         NormalizeRuleConditions(rule)
         MergeMissing(rule.style, DEFAULT_RULES[1].style)
@@ -767,6 +797,8 @@ local publicAPI = {
     end,
     RegisterCondition = addon.RegisterCondition,
     RegisterSpellSchool = addon.RegisterSpellSchool,
+    NormalizeRuleConditions = NormalizeRuleConditions,
+    ValidateRuleConditions = ValidateRuleConditions,
     GetSettings = GetSettings,
     GetRules = function() return GetSettings().rules end,
     GetProfileInfo = ProfileInfo,

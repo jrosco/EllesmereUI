@@ -18,30 +18,6 @@ Copy = function(value)
     return result
 end
 
-local VALID = {
-    questObjective = { any = true, yes = true, no = true },
-}
-local MULTI_VALID = {
-    unitType = { player = true, npc = true, pet = true, creature = true },
-    reaction = { enemy = true, friendly = true, neutral = true },
-    classification = { normal = true, elite = true, rare = true, rareelite = true, boss = true, minus = true },
-    target = { yes = true, no = true },
-    castState = { none = true, casting = true, channel = true, empowered = true, interruptible = true, uninterruptible = true },
-    spellSchool = { physical = true, holy = true, fire = true, nature = true, frost = true, shadow = true, arcane = true, mixed = true },
-}
-local function NormalizeMultiConditions(rule)
-    for key, allowed in pairs(MULTI_VALID) do
-        local value = rule.conditions[key]
-        if type(value) == "string" then
-            local selected = {}
-            if value ~= "any" and allowed[value] then selected[value] = true end
-            rule.conditions[key] = selected
-        elseif value == nil then
-            rule.conditions[key] = {}
-        end
-    end
-    return rule
-end
 local BOOLEAN_STYLE_KEYS = {
     "healthEnabled", "healthColorEnabled", "borderEnabled", "castEnabled",
     "castColorEnabled", "castOpacityEnabled", "castBorderEnabled",
@@ -83,25 +59,8 @@ local function ValidateRule(rule, index)
     if type(rule.conditions) ~= "table" or type(rule.style) ~= "table" then
         return nil, ("Rule %d is missing its conditions or style."):format(index)
     end
-    for key, allowed in pairs(VALID) do
-        local value = rule.conditions[key]
-        if value ~= nil and (type(value) ~= "string" or not allowed[value]) then
-            return nil, ("Rule %d has an invalid %s condition."):format(index, key)
-        end
-    end
-    for key, allowed in pairs(MULTI_VALID) do
-        local value = rule.conditions[key]
-        if value ~= nil then
-            local valid = type(value) == "string" and (value == "any" or allowed[value])
-            if type(value) == "table" then
-                valid = true
-                for choice, selected in pairs(value) do
-                    if not allowed[choice] or selected ~= true then valid = false; break end
-                end
-            end
-            if not valid then return nil, ("Rule %d has an invalid %s condition."):format(index, key) end
-        end
-    end
+    local validConditions, invalidKey = api.ValidateRuleConditions(rule.conditions)
+    if not validConditions then return nil, ("Rule %d has an invalid %s condition."):format(index, invalidKey) end
     for _, key in ipairs(BOOLEAN_STYLE_KEYS) do
         local value = rule.style[key]
         if value ~= nil and type(value) ~= "boolean" then
@@ -210,7 +169,7 @@ function api.ImportRuleSet(code)
     end
     local settings = api.GetSettings()
     settings.rules = Copy(rules)
-    for _, rule in ipairs(settings.rules) do NormalizeMultiConditions(rule) end
+    for _, rule in ipairs(settings.rules) do api.NormalizeRuleConditions(rule) end
     settings.selectedRule = 1
     api.Refresh()
     return true

@@ -164,6 +164,43 @@ assert(namespace.FindRule("nameplate1").name == "Loaded rule")
 Near(plate.scale, 1.5, "saved scale")
 Near(plate.health.color[1], 0.2, "saved color")
 
+-- Profile loading/switching must preserve Any, No-only, and omitted target selections.
+local loadedStore = EllesmereUINameplateExtrasDB
+EllesmereUINameplateExtrasDB = { profiles = { Default = { rules = {
+    { name = "Any target", conditions = { target = {} } },
+    { name = "Not target", conditions = { target = { no = true } } },
+    { name = "Generic rule", conditions = {} },
+} } } }
+local function CheckTargetSelections()
+    local rules = api.GetRules()
+    assert(next(rules[1].conditions.target) == nil, "reload/switch changed Any target to Yes")
+    assert(rules[2].conditions.target.no and not rules[2].conditions.target.yes,
+        "reload/switch changed No-only target to both states")
+    assert(next(rules[3].conditions.target) == nil, "missing generic target must stay unrestricted")
+end
+CheckTargetSelections()
+assert(api.CreateProfile("Target regression"))
+assert(next(api.GetRules()[2].conditions.target) == nil, "starter elite rule must allow non-targets")
+assert(next(api.GetRules()[3].conditions.target) == nil, "starter casting rule must allow non-targets")
+local originalIsUnit, originalClassification = UnitIsUnit, UnitClassification
+UnitIsUnit = function() return false end
+UnitClassification = function() return "elite" end
+assert(namespace.FindRule("nameplate1").name == "Elite Enemies", "non-target elite starter cannot win")
+UnitClassification = originalClassification
+activeCast = "casting"
+assert(namespace.FindRule("nameplate1").name == "Enemy Casting", "non-target casting starter cannot win")
+activeCast, UnitIsUnit = nil, originalIsUnit
+assert(api.SelectProfile("Default"))
+CheckTargetSelections()
+assert(namespace.FindRule("nameplate1").name == "Any target", "generic Any rule must match current target")
+api.GetRules()[1].enabled = false
+assert(namespace.FindRule("nameplate1").name == "Generic rule", "No-only rule must reject current target")
+UnitIsUnit = function() return false end
+assert(namespace.FindRule("nameplate1").name == "Not target", "No-only rule must match non-target")
+UnitIsUnit = originalIsUnit
+EllesmereUINameplateExtrasDB = loadedStore
+api.Refresh(); Flush()
+
 -- Replacing the table must not leave the renderer reading its previous rules.
 EllesmereUINameplateExtrasDB = Settings("Replacement rule", 115, 0.6)
 api.Refresh(); Flush()

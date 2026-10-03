@@ -13,6 +13,8 @@ Three starter rules are enabled: current target, elite enemy, and enemy casting.
 
 Categorical conditions use multi-select checklists: player/NPC/pet/creature, friendly/enemy/neutral, normal/elite/rare/rare elite/boss/minor, current-target state, cast/channel/empowered/interruptibility, and spell school. Multiple choices within a condition match with OR; separate condition groups combine with AND. Leaving a checklist empty means Any. Quest objective remains an optional toggle and uses EUI's cached tooltip-based detector for incomplete objectives in the player's own quest log, following EUI's Show In Instances setting. Combat-log school tracking is enabled only when at least one enabled rule selects a specific school. A spell school is learned when its cast-start event is seen; unknown spells do not match school-specific rules.
 
+Empty or missing target selections stay unrestricted across reloads, profile switches, and imports; No-only selections stay No-only. The elite and enemy-casting starter rules also apply to non-targets. Earlier versions could add Yes to saved target selections during profile normalization. Existing Yes values are preserved because they may be intentional; review the Target state checklist if a rule previously changed behavior unexpectedly.
+
 Effects include health-bar color, whole-nameplate scale and opacity, an additional colored health-bar border, and a choice of EUI/flat/Blizzard health texture.
 
 ## Health-bar overrides
@@ -60,3 +62,5 @@ Run `/npextras` with a visible enemy target to report matching rules and reapply
 Scale is a multiplier on EUI's base scale, including its target/cast animation. The plugin does not modify EUI's animation values.
 
 From the repository root, run `lua EllesmereUINameplateExtras/tests/runtime.lua` (or `npx --yes --package fengari-node-cli fengari EllesmereUINameplateExtras/tests/runtime.lua`). The mocked runtime tests cover delayed SavedVariables loading, table replacement, multi-select matching and legacy imports, option callbacks, new rules, scale updates, frame recycling, and disabling styles. Cast tests cover engine repaints, texture replacement and spark anchors, interrupt flashes, opacity, borders, and restoration. They do not replace in-game testing on Forever and Retail.
+
+Run `lua EllesmereUINameplateExtras/tests/schema.lua` (or `npx --yes --package fengari-node-cli fengari EllesmereUINameplateExtras/tests/schema.lua`) for focused target reload/profile-switch regressions and shared condition validation/normalization checks, including all categorical values, version 1/2 imports, and custom-condition preservation.
