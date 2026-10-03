@@ -226,7 +226,7 @@ local function NewRule(index)
     return {
         name = "Custom Rule " .. index,
         enabled = true,
-        conditions = { unitType = "any", reaction = "any", classification = "any", target = "yes", castState = "any", spellSchool = "any" },
+        conditions = { unitType = {}, reaction = {}, classification = {}, target = { yes = true }, castState = {}, spellSchool = {} },
         style = { healthColorEnabled = true, healthColor = { r = 1, g = 0.72, b = 0.15 }, scale = 100, opacity = 100, borderSize = 2, borderColor = { r = 1, g = 0.72, b = 0.15 }, texture = "eui" },
     }
 end
@@ -381,25 +381,84 @@ local function BuildRulesPage(parent, yOffset)
         function(value) GetRule().enabled = value; Rebuild(); Changed() end)
     y = y - h
 
-    local function ConditionDropdown(label, key, values, keys, tooltip)
-        local _, rowHeight = W:Dropdown(parent, label, y, values,
-            function()
+    local function ConditionMultiDropdown(label, key, values, keys, tooltip)
+        local items = {}
+        for _, value in ipairs(keys) do
+            if value ~= "any" then items[#items + 1] = { key = value, label = values[value] } end
+        end
+        local function GetSelection()
+            local value = GetRule().conditions[key]
+            if type(value) == "table" then return value end
+            if type(value) == "string" and value ~= "any" then return { [value] = true } end
+            return {}
+        end
+        return {
+            text = label,
+            tooltip = tooltip,
+            items = items,
+            emptyLabel = values.any,
+            getSelected = function(option) return GetSelection()[option] == true end,
+            setSelected = function(option, selected)
                 local current = GetRule()
-                return current.conditions[key] or "any"
-            end,
-            function(value)
-                local current = GetRule()
+                local value = GetSelection()
                 current.conditions[key] = value
+                value[option] = selected and true or nil
                 Changed()
-            end, keys, tooltip)
+            end,
+        }
+    end
+    local function BuildConditionMultiDropdown(region, condition)
+        local PP = EllesmereUI.PanelPP
+        local label = EllesmereUI.MakeFont(region, 14, nil, 1, 1, 1)
+        PP.Point(label, "LEFT", region, "LEFT", 20, 0)
+        label:SetJustifyH("LEFT")
+        label:SetWordWrap(false)
+        label:SetMaxLines(1)
+        label:SetText(EllesmereUI.L(condition.text))
+
+        local ddBtn, refresh = EllesmereUI.BuildVisOptsCBDropdown(
+            region, 170, region:GetFrameLevel() + 2, condition.items,
+            condition.getSelected, condition.setSelected, nil, nil, nil, nil, nil,
+            { emptyLabel = condition.emptyLabel, label = condition.text })
+        PP.Point(ddBtn, "RIGHT", region, "RIGHT", -20, 0)
+        EllesmereUI.RegisterWidgetRefresh(refresh)
+
+        if condition.tooltip then
+            local hitFrame = CreateFrame("Frame", nil, region)
+            hitFrame:SetPoint("TOPLEFT", label, "TOPLEFT", -5, 5)
+            hitFrame:SetPoint("BOTTOMRIGHT", label, "BOTTOMRIGHT", 5, -5)
+            hitFrame:SetFrameLevel(region:GetFrameLevel() + 10)
+            hitFrame:EnableMouse(true)
+            hitFrame:SetScript("OnEnter", function()
+                EllesmereUI.ShowWidgetTooltip(label, condition.tooltip)
+            end)
+            hitFrame:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+            hitFrame:SetMouseClickEnabled(false)
+        end
+    end
+    local conditions = {
+        ConditionMultiDropdown("Unit type", "unitType", UNIT_TYPES, UNIT_ORDER,
+            "Matches any selected unit type. Any creature includes NPCs and player-controlled pets."),
+        ConditionMultiDropdown("Reaction", "reaction", REACTIONS, REACTION_ORDER),
+        ConditionMultiDropdown("Classification", "classification", CLASSIFICATIONS, CLASSIFICATION_ORDER,
+            "Matches any selected game classification: normal, elite, rare, rare elite, boss, or minor."),
+        ConditionMultiDropdown("Target state", "target", TARGETS, TARGET_ORDER),
+        ConditionMultiDropdown("Cast state", "castState", CAST_STATES, CAST_ORDER),
+        ConditionMultiDropdown("Spell school", "spellSchool", SCHOOLS, SCHOOL_ORDER,
+            "Learns spell schools from combat-log cast starts while a school rule is enabled. Unknown spells do not match a specific school."),
+    }
+    for index = 1, #conditions, 2 do
+        local left, right = conditions[index], conditions[index + 1]
+        -- Use spacer slots for the row shell, then attach the shared checkbox
+        -- dropdowns directly. This works with installed row factories that
+        -- predate custom checkbox-dropdown row types.
+        local row, rowHeight = W:DualRow(parent, y,
+            { type = "spacer", text = left.text, tooltip = left.tooltip },
+            right and { type = "spacer", text = right.text, tooltip = right.tooltip } or nil)
+        BuildConditionMultiDropdown(row._leftRegion, left)
+        if right then BuildConditionMultiDropdown(row._rightRegion, right) end
         y = y - rowHeight
     end
-    ConditionDropdown("Unit type", "unitType", UNIT_TYPES, UNIT_ORDER,
-        "Player, NPC, player-controlled pet, or any non-player creature.")
-    ConditionDropdown("Reaction", "reaction", REACTIONS, REACTION_ORDER)
-    ConditionDropdown("Classification", "classification", CLASSIFICATIONS, CLASSIFICATION_ORDER,
-        "Uses the unit's game classification: normal, elite, rare, rare elite, boss, or minor.")
-    ConditionDropdown("Target state", "target", TARGETS, TARGET_ORDER)
     _, h = W:Toggle(parent, "Quest Objective", y,
         function() return GetRule().conditions.questObjective == "yes" end,
         function(value)
@@ -408,10 +467,6 @@ local function BuildRulesPage(parent, yOffset)
         end,
         "When on, matches only units shown as incomplete objectives in your own quest log. Uses EUI's quest detector and follows its Show In Instances setting. When off, quest status does not restrict this rule.")
     y = y - h
-    ConditionDropdown("Cast state", "castState", CAST_STATES, CAST_ORDER)
-    ConditionDropdown("Spell school", "spellSchool", SCHOOLS, SCHOOL_ORDER,
-        "Learns spell schools from combat-log cast starts while a school rule is enabled. Unknown spells do not match a specific school.")
-
     _, h = W:SectionHeader(parent, RuleHeading("APPEARANCE - NAMEPLATE", rule, selected), y); y = y - h
     _, h = W:Slider(parent, "Nameplate size (%)", y, 50, 200, 5,
         function() return GetRule().style.scale or 100 end,

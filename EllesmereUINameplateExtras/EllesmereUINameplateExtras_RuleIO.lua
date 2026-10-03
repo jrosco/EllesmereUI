@@ -1,8 +1,10 @@
 local api = _G.EllesmereUINameplateExtras
 if not api then return end
 
-local PREFIX = "!EUI_NPEX_RULES1!"
+local LEGACY_PREFIX = "!EUI_NPEX_RULES1!"
+local PREFIX = "!EUI_NPEX_RULES2!"
 local FORMAT = "EllesmereUINameplateExtrasRules"
+local VERSION = 2
 local MAX_CODE_LENGTH = 64000
 local MAX_DATA_LENGTH = 128000
 local MAX_RULES = api.MaxRules or 12
@@ -17,14 +19,29 @@ Copy = function(value)
 end
 
 local VALID = {
-    unitType = { any = true, player = true, npc = true, pet = true, creature = true },
-    reaction = { any = true, enemy = true, friendly = true, neutral = true },
-    classification = { any = true, normal = true, elite = true, rare = true, rareelite = true, boss = true, minus = true },
-    target = { any = true, yes = true, no = true },
     questObjective = { any = true, yes = true, no = true },
-    castState = { any = true, none = true, casting = true, channel = true, empowered = true, interruptible = true, uninterruptible = true },
-    spellSchool = { any = true, physical = true, holy = true, fire = true, nature = true, frost = true, shadow = true, arcane = true, mixed = true },
 }
+local MULTI_VALID = {
+    unitType = { player = true, npc = true, pet = true, creature = true },
+    reaction = { enemy = true, friendly = true, neutral = true },
+    classification = { normal = true, elite = true, rare = true, rareelite = true, boss = true, minus = true },
+    target = { yes = true, no = true },
+    castState = { none = true, casting = true, channel = true, empowered = true, interruptible = true, uninterruptible = true },
+    spellSchool = { physical = true, holy = true, fire = true, nature = true, frost = true, shadow = true, arcane = true, mixed = true },
+}
+local function NormalizeMultiConditions(rule)
+    for key, allowed in pairs(MULTI_VALID) do
+        local value = rule.conditions[key]
+        if type(value) == "string" then
+            local selected = {}
+            if value ~= "any" and allowed[value] then selected[value] = true end
+            rule.conditions[key] = selected
+        elseif value == nil then
+            rule.conditions[key] = {}
+        end
+    end
+    return rule
+end
 local BOOLEAN_STYLE_KEYS = {
     "healthEnabled", "healthColorEnabled", "borderEnabled", "castEnabled",
     "castColorEnabled", "castOpacityEnabled", "castBorderEnabled",
@@ -70,6 +87,19 @@ local function ValidateRule(rule, index)
         local value = rule.conditions[key]
         if value ~= nil and (type(value) ~= "string" or not allowed[value]) then
             return nil, ("Rule %d has an invalid %s condition."):format(index, key)
+        end
+    end
+    for key, allowed in pairs(MULTI_VALID) do
+        local value = rule.conditions[key]
+        if value ~= nil then
+            local valid = type(value) == "string" and (value == "any" or allowed[value])
+            if type(value) == "table" then
+                valid = true
+                for choice, selected in pairs(value) do
+                    if not allowed[choice] or selected ~= true then valid = false; break end
+                end
+            end
+            if not valid then return nil, ("Rule %d has an invalid %s condition."):format(index, key) end
         end
     end
     for _, key in ipairs(BOOLEAN_STYLE_KEYS) do
@@ -126,7 +156,7 @@ function api.ExportRuleSet()
         local ok, reason = ValidateRule(rule, index)
         if not ok then return nil, reason end
     end
-    local payload = { format = FORMAT, version = 1, rules = rules }
+    local payload = { format = FORMAT, version = VERSION, rules = rules }
     local ok, serialized = pcall(serializer.Serialize, payload)
     if not ok or type(serialized) ~= "string" then return nil, "Could not serialize the rule set." end
     local compressedOK, compressed = pcall(lib.CompressDeflate, lib, serialized)
@@ -141,19 +171,25 @@ end
 function api.ImportRuleSet(code)
     if type(code) ~= "string" then return false, "Paste a Nameplate Extras rule-set code." end
     code = code:gsub("^%s+", ""):gsub("%s+$", ""):gsub("%s+", "")
-    if #code < #PREFIX + 1 or #code > MAX_CODE_LENGTH or code:sub(1, #PREFIX) ~= PREFIX then
+    local codePrefix, expectedVersion
+    if code:sub(1, #PREFIX) == PREFIX then
+        codePrefix, expectedVersion = PREFIX, VERSION
+    elseif code:sub(1, #LEGACY_PREFIX) == LEGACY_PREFIX then
+        codePrefix, expectedVersion = LEGACY_PREFIX, 1
+    end
+    if not codePrefix or #code < #codePrefix + 1 or #code > MAX_CODE_LENGTH then
         return false, "This is not a valid Nameplate Extras rule-set code."
     end
     local serializer, lib, err = GetCodec()
     if not serializer then return false, err end
-    local ok, decoded = pcall(lib.DecodeForPrint, lib, code:sub(#PREFIX + 1))
+    local ok, decoded = pcall(lib.DecodeForPrint, lib, code:sub(#codePrefix + 1))
     if not ok or type(decoded) ~= "string" then return false, "Could not decode the rule-set code." end
     local decompressedOK, serialized = pcall(lib.DecompressDeflate, lib, decoded)
     if not decompressedOK or type(serialized) ~= "string" or #serialized > MAX_DATA_LENGTH then
         return false, "The rule-set code is invalid or too large."
     end
     local deserializeOK, payload = pcall(serializer.Deserialize, serialized)
-    if not deserializeOK or type(payload) ~= "table" or payload.format ~= FORMAT or payload.version ~= 1 then
+    if not deserializeOK or type(payload) ~= "table" or payload.format ~= FORMAT or payload.version ~= expectedVersion then
         return false, "The rule-set code is damaged or from an unsupported version."
     end
     local rules = payload.rules
@@ -174,6 +210,7 @@ function api.ImportRuleSet(code)
     end
     local settings = api.GetSettings()
     settings.rules = Copy(rules)
+    for _, rule in ipairs(settings.rules) do NormalizeMultiConditions(rule) end
     settings.selectedRule = 1
     api.Refresh()
     return true

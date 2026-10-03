@@ -11,7 +11,7 @@ The **Profiles** tab assigns a named rules profile to each character. **Default*
 
 Three starter rules are enabled: current target, elite enemy, and enemy casting. Add up to 12 rules, copy the selected rule, edit their conditions and visual effects, and move them to change priority. A copy is inserted after its source and selected for editing. New rules start enabled for the current target. The first enabled matching rule wins.
 
-Conditions currently include player/NPC/pet/creature, friendly/enemy/neutral, normal/elite/rare/rare elite/boss/minor, current-target state, an optional active-quest-objective toggle, cast/channel/empowered/interruptibility, and spell school. Quest matching uses EUI's cached tooltip-based detector for incomplete objectives in the player's own quest log, following EUI's Show In Instances setting. Combat-log school tracking is enabled only when at least one enabled rule selects a specific school. A spell school is learned when its cast-start event is seen; unknown spells do not match school-specific rules.
+Categorical conditions use multi-select checklists: player/NPC/pet/creature, friendly/enemy/neutral, normal/elite/rare/rare elite/boss/minor, current-target state, cast/channel/empowered/interruptibility, and spell school. Multiple choices within a condition match with OR; separate condition groups combine with AND. Leaving a checklist empty means Any. Quest objective remains an optional toggle and uses EUI's cached tooltip-based detector for incomplete objectives in the player's own quest log, following EUI's Show In Instances setting. Combat-log school tracking is enabled only when at least one enabled rule selects a specific school. A spell school is learned when its cast-start event is seen; unknown spells do not match school-specific rules.
 
 Effects include health-bar color, whole-nameplate scale and opacity, an additional colored health-bar border, and a choice of EUI/flat/Blizzard health texture.
 
@@ -51,7 +51,7 @@ EllesmereUINameplateExtras.GetRules()
 
 ## Standalone rule-set sharing
 
-The **Sharing** tab is separate from rule editing. Use **Export Rule Set** to open a copyable code, then paste it on another character with **Import Rule Set**. The code contains only the rule list (names, conditions, and appearance settings); importing replaces the currently selected character profile's rules and selects the first one. It does not import the profile assignment or global enable toggle. Codes use the `!EUI_NPEX_RULES1!` prefix and do not use EUI's full profile import/export.
+The **Sharing** tab is separate from rule editing. Use **Export Rule Set** to open a copyable code, then paste it on another character with **Import Rule Set**. The code contains only the rule list (names, conditions, and appearance settings); importing replaces the currently selected character profile's rules and selects the first one. It does not import the profile assignment or global enable toggle. New codes use the `!EUI_NPEX_RULES2!` prefix; older `!EUI_NPEX_RULES1!` codes remain importable. These codes do not use EUI's full profile import/export.
 
 ## Diagnostics and tests
 
@@ -59,4 +59,4 @@ Run `/npextras` with a visible enemy target to report matching rules and reapply
 
 Scale is a multiplier on EUI's base scale, including its target/cast animation. The plugin does not modify EUI's animation values.
 
-From the repository root, run `lua EllesmereUINameplateExtras/tests/runtime.lua` (or `npx --yes --package fengari-node-cli fengari EllesmereUINameplateExtras/tests/runtime.lua`). The mocked runtime tests cover delayed SavedVariables loading, table replacement, option callbacks, new rules, scale updates, frame recycling, and disabling styles. Cast tests cover engine repaints, texture replacement and spark anchors, interrupt flashes, opacity, borders, and restoration. They do not replace in-game testing on Forever and Retail.
+From the repository root, run `lua EllesmereUINameplateExtras/tests/runtime.lua` (or `npx --yes --package fengari-node-cli fengari EllesmereUINameplateExtras/tests/runtime.lua`). The mocked runtime tests cover delayed SavedVariables loading, table replacement, multi-select matching and legacy imports, option callbacks, new rules, scale updates, frame recycling, and disabling styles. Cast tests cover engine repaints, texture replacement and spark anchors, interrupt flashes, opacity, borders, and restoration. They do not replace in-game testing on Forever and Retail.

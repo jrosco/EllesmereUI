@@ -5,6 +5,7 @@ local function Noop() end
 local tappedByOther = false
 local questObjective = false
 local playerName = "TestCharacter"
+local activeCast
 function CreateFrame(kind, _, parentFrame)
     local frame = { events = {}, scripts = {}, scale = 1, alpha = 1, kind = kind, parent = parentFrame,
         vertexColor = { 1, 1, 1, 1 } }
@@ -20,10 +21,12 @@ function CreateFrame(kind, _, parentFrame)
     function frame:GetWidth() return self.width or 800 end
     function frame:SetSize(width, height) self.width, self.height = width, height end
     for _, method in ipairs({ "SetAllPoints", "SetFrameStrata", "SetFrameLevel", "Hide", "Show",
-        "ClearAllPoints", "SetPoint", "SetHeight", "SetWidth", "SetColorTexture" }) do
+        "ClearAllPoints", "SetPoint", "SetHeight", "SetWidth", "SetColorTexture", "SetText",
+        "SetJustifyH", "SetWordWrap", "SetMaxLines", "EnableMouse", "SetMouseClickEnabled" }) do
         frame[method] = Noop
     end
     function frame:CreateTexture() return CreateFrame("Texture", nil, self) end
+    function frame:CreateFontString() return CreateFrame("FontString", nil, self) end
     function frame:SetPoint(...) self.point = { ... } end
     function frame:GetNumPoints() return self.point and 1 or 0 end
     function frame:GetPoint() return unpack(self.point) end
@@ -70,8 +73,12 @@ function UnitCanAttack() return true end
 function UnitIsUnit(unit, other) return unit == "nameplate1" and other == "target" end
 function UnitClassification() return "normal" end
 function UnitIsTapDenied() return tappedByOther end
-function UnitCastingInfo() return nil end
-function UnitChannelInfo() return nil end
+function UnitCastingInfo()
+    if activeCast == "casting" then return "Test Spell", nil, nil, nil, nil, nil, nil, false, 123 end
+end
+function UnitChannelInfo()
+    if activeCast == "channel" then return "Test Channel", nil, nil, nil, nil, nil, false, 456 end
+end
 function geterrorhandler() return error end
 SlashCmdList = {}
 
@@ -144,6 +151,12 @@ assert(api, "public API missing")
 EllesmereUINameplateExtrasDB = Settings("Loaded rule", 150, 0.2)
 Fire("ADDON_LOADED", "EllesmereUINameplateExtras")
 assert(api.GetSettings() == EllesmereUINameplateExtrasDB.profiles.Default)
+assert(type(api.GetRules()[1].conditions.target) == "table"
+    and api.GetRules()[1].conditions.target.yes == true,
+    "legacy scalar target condition was not migrated to a selection set")
+assert(type(api.GetRules()[1].conditions.unitType) == "table"
+    and next(api.GetRules()[1].conditions.unitType) == nil,
+    "missing condition should normalize to an empty (Any) selection")
 assert(api.GetProfileInfo().character == "TestCharacter - TestRealm")
 assert(api.GetProfileInfo().active == "Default")
 assert(EllesmereUINameplateExtrasDB.characterProfiles["TestCharacter - TestRealm"] == "Default")
@@ -245,6 +258,12 @@ function W:Toggle(_, text, _, get, set) rows[text] = { get = get, set = set }; r
 function W:Slider(_, text, _, _, _, _, get, set) rows[text] = { get = get, set = set }; return {}, 50 end
 function W:Dropdown(_, text, _, values, get, set) rows[text] = { get = get, set = set, values = values }; return {}, 50 end
 function W:DualRow(_, _, config, right)
+    if config.type == "spacer" then
+        local row = CreateFrame()
+        row._leftRegion = CreateFrame()
+        row._rightRegion = CreateFrame()
+        return row, 50
+    end
     for _, cfg in ipairs({ config, right }) do
         if cfg.type == "colorpicker" then assert(type(cfg.getValue()) == "number") end
         rows[cfg.text] = { get = cfg.getValue, set = cfg.setValue, disabled = cfg.disabled, values = cfg.values }
@@ -275,6 +294,18 @@ end
 local exportedPopup, importedPopup, legacyImportPopup, deleteConfirm
 EllesmereUI = {
     Widgets = W,
+    MakeFont = function(parent) return parent:CreateFontString() end,
+    L = function(text) return text end,
+    RegisterWidgetRefresh = Noop,
+    ShowWidgetTooltip = Noop,
+    HideWidgetTooltip = Noop,
+    BuildVisOptsCBDropdown = function(parent, width, frameLevel, items, get, set, _, _, _, _, _, opts)
+        local button = CreateFrame("Button", nil, parent)
+        button:SetSize(width, 30)
+        button:SetFrameLevel(frameLevel)
+        rows[opts.label] = { get = get, set = set, items = items, emptyLabel = opts.emptyLabel }
+        return button, Noop
+    end,
     ResolveTexturePath = function(textureTable, key, fallback) return textureTable[key] or fallback end,
     CONTENT_PAD = 20,
     PanelPP = {
@@ -327,10 +358,13 @@ rows["Profile for this character"].set("Default")
 assert(api.GetProfileInfo().active == "Default", "Profiles tab didn't switch back to Default")
 spec.modules[1].buildPage("Rules", parent, 0)
 local ruleCode = assert(api.ExportRuleSet())
-assert(ruleCode:sub(1, 17) == "!EUI_NPEX_RULES1!", "standalone export prefix missing")
+assert(ruleCode:sub(1, 17) == "!EUI_NPEX_RULES2!", "standalone export prefix missing")
+local wirePayload = wirePayloads[ruleCode:sub(18)]
+assert(type(wirePayload.rules[1].conditions.unitType) == "table",
+    "export should serialize multi-select conditions")
 spec.modules[1].buildPage("Sharing", parent, 0)
 rows["Export Rule Set"].click()
-assert(exportedPopup and exportedPopup.code:sub(1, 17) == "!EUI_NPEX_RULES1!",
+assert(exportedPopup and exportedPopup.code:sub(1, 17) == "!EUI_NPEX_RULES2!",
     "export action didn't display the share code")
 rows["Import Rule Set"].click()
 assert(importedPopup and importedPopup.title == "Import Nameplate Rules"
@@ -343,6 +377,22 @@ assert(api.GetRules()[1].name == exportedRuleName, "import didn't restore the ex
 local currentRules = api.GetRules()
 local invalidOK = api.ImportRuleSet("not a rule-set code")
 assert(not invalidOK and api.GetRules() == currentRules, "invalid import replaced the live rules")
+local exportedUnitType = wirePayload.rules[1].conditions.unitType
+wirePayload.rules[1].conditions.unitType = { invalidChoice = true }
+local invalidConditionOK = api.ImportRuleSet(ruleCode)
+assert(not invalidConditionOK and api.GetRules() == currentRules,
+    "import accepted an unknown multi-select condition")
+wirePayload.rules[1].conditions.unitType = exportedUnitType
+wirePayload.rules[1].conditions.unitType = "npc"
+wirePayload.version = 1
+local legacyRuleCode = "!EUI_NPEX_RULES1!" .. ruleCode:sub(18)
+local legacyConditionOK, legacyConditionError = api.ImportRuleSet(legacyRuleCode)
+assert(legacyConditionOK, legacyConditionError)
+assert(api.GetRules()[1].conditions.unitType.npc == true,
+    "legacy scalar import was not normalized to a selection set")
+wirePayload.version = 2
+wirePayload.rules[1].conditions.unitType = exportedUnitType
+assert(api.ImportRuleSet(ruleCode), "could not restore the exported multi-select rule")
 importedPopup.onConfirm(ruleCode)
 assert(api.GetRules()[1].name == exportedRuleName, "paste popup didn't apply the exported rules")
 local scrollImportPopup = EllesmereUI.ShowImportStringPopup
@@ -389,6 +439,66 @@ questObjective = true
 assert(namespace.FindRule("nameplate1") == api.GetRules()[1], "quest objective condition failed to match")
 rows["Quest Objective"].set(false)
 assert(api.GetRules()[1].conditions.questObjective == "any", "quest toggle off must remove the condition")
+
+-- Every category uses OR within its selection, while separate condition fields still AND.
+local unitType = rows["Unit type"]
+local reaction = rows["Reaction"]
+local classification = rows["Classification"]
+local targetState = rows["Target state"]
+local castState = rows["Cast state"]
+local spellSchool = rows["Spell school"]
+assert(unitType and reaction and classification and targetState and castState and spellSchool,
+    "categorical multi-select controls were not built")
+unitType.set("player", true)
+unitType.set("npc", true)
+assert(api.GetRules()[1].conditions.unitType.player and api.GetRules()[1].conditions.unitType.npc)
+assert(namespace.FindRule("nameplate1") == api.GetRules()[1], "unit type selections should OR together")
+unitType.set("npc", false)
+assert(namespace.FindRule("nameplate1") == nil, "different condition groups should still AND together")
+unitType.set("player", false)
+reaction.set("friendly", true)
+assert(namespace.FindRule("nameplate1") == nil, "a nonmatching reaction should fail")
+reaction.set("enemy", true)
+assert(namespace.FindRule("nameplate1") == api.GetRules()[1], "reaction selections should OR together")
+reaction.set("friendly", false)
+reaction.set("enemy", false)
+classification.set("elite", true)
+assert(namespace.FindRule("nameplate1") == nil, "classification should reject an unmatched rank")
+classification.set("normal", true)
+assert(namespace.FindRule("nameplate1") == api.GetRules()[1], "classification selections should OR together")
+classification.set("elite", false)
+classification.set("normal", false)
+targetState.set("no", true)
+assert(namespace.FindRule("nameplate1") == api.GetRules()[1], "target yes/no alternatives should OR together")
+targetState.set("yes", false)
+assert(namespace.FindRule("nameplate1") == nil, "target state should reject the current target when only No is selected")
+targetState.set("no", false)
+targetState.set("yes", true)
+castState.set("none", true)
+castState.set("casting", true)
+assert(namespace.FindRule("nameplate1") == api.GetRules()[1], "cast-state selections should OR together")
+castState.set("none", false)
+assert(namespace.FindRule("nameplate1") == nil, "cast state should reject a unit outside the selected alternatives")
+activeCast = "casting"
+assert(api.RegisterSpellSchool(123, "fire"), "spell school registration failed")
+assert(namespace.FindRule("nameplate1") == api.GetRules()[1], "selected casting state did not match")
+castState.set("channel", true)
+assert(namespace.FindRule("nameplate1") == api.GetRules()[1], "cast-state alternatives should match active casts")
+castState.set("casting", false)
+assert(namespace.FindRule("nameplate1") == nil, "a nonselected cast state should not match")
+activeCast = "channel"
+assert(namespace.FindRule("nameplate1") == api.GetRules()[1], "channel state should match its selected alternative")
+castState.set("channel", false)
+activeCast = "casting"
+spellSchool.set("fire", true)
+spellSchool.set("frost", true)
+assert(namespace.FindRule("nameplate1") == api.GetRules()[1], "spell-school alternatives should match active casts")
+spellSchool.set("fire", false)
+assert(namespace.FindRule("nameplate1") == nil, "spell school should reject a nonselected school")
+spellSchool.set("frost", false)
+activeCast = nil
+assert(namespace.FindRule("nameplate1") == api.GetRules()[1], "empty school selection should mean Any")
+
 rows["Add Rule"].click(); Flush()
 assert(HasHeader("RULE ORDER - POSITION 1 OF 2", "(Custom Rule 2)"))
 assert(namespace.FindRule("nameplate1") == api.GetRules()[1], "new rule not selected by renderer")
@@ -410,7 +520,9 @@ rows["Copy Rule"].click(); Flush()
 local copy = api.GetRules()[2]
 assert(copy ~= renamed and copy.name == "My Target Rule Copy", "copy did not create a named rule")
 assert(copy.conditions ~= renamed.conditions and copy.style ~= renamed.style, "copy shares mutable rule tables")
-assert(copy.conditions.target == renamed.conditions.target and copy.style.scale == renamed.style.scale,
+assert(copy.conditions.target.yes == renamed.conditions.target.yes
+    and copy.conditions.target ~= renamed.conditions.target
+    and copy.style.scale == renamed.style.scale,
     "copy did not preserve rule settings")
 assert(api.GetSettings().selectedRule == 2 and rows["Rule name"].get() == copy.name,
     "copy was not selected for editing")

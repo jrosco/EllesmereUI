@@ -1,22 +1,31 @@
 local addonName, addon = ...
 
+local MULTI_CONDITION_VALUES = {
+    unitType = { player = true, npc = true, pet = true, creature = true },
+    reaction = { enemy = true, friendly = true, neutral = true },
+    classification = { normal = true, elite = true, rare = true, rareelite = true, boss = true, minus = true },
+    target = { yes = true, no = true },
+    castState = { none = true, casting = true, channel = true, empowered = true, interruptible = true, uninterruptible = true },
+    spellSchool = { physical = true, holy = true, fire = true, nature = true, frost = true, shadow = true, arcane = true, mixed = true },
+}
+
 local DEFAULT_RULES = {
     {
         name = "Current Target",
         enabled = true,
-        conditions = { unitType = "any", reaction = "any", classification = "any", target = "yes", questObjective = "any", castState = "any", spellSchool = "any" },
+        conditions = { unitType = {}, reaction = {}, classification = {}, target = { yes = true }, questObjective = "any", castState = {}, spellSchool = {} },
         style = { healthColorEnabled = true, healthColor = { r = 0.12, g = 0.92, b = 0.67 }, scale = 115, opacity = 100, borderSize = 2, borderColor = { r = 0.12, g = 0.92, b = 0.67 }, texture = "eui" },
     },
     {
         name = "Elite Enemies",
         enabled = true,
-        conditions = { unitType = "any", reaction = "enemy", classification = "elite", target = "any", questObjective = "any", castState = "any", spellSchool = "any" },
+        conditions = { unitType = {}, reaction = { enemy = true }, classification = { elite = true }, target = {}, questObjective = "any", castState = {}, spellSchool = {} },
         style = { healthColorEnabled = true, healthColor = { r = 0.72, g = 0.36, b = 1.00 }, scale = 105, opacity = 100, borderSize = 2, borderColor = { r = 0.72, g = 0.36, b = 1.00 }, texture = "eui" },
     },
     {
         name = "Enemy Casting",
         enabled = true,
-        conditions = { unitType = "any", reaction = "enemy", classification = "any", target = "any", questObjective = "any", castState = "casting", spellSchool = "any" },
+        conditions = { unitType = {}, reaction = { enemy = true }, classification = {}, target = {}, questObjective = "any", castState = { casting = true }, spellSchool = {} },
         style = { healthColorEnabled = true, healthColor = { r = 1.00, g = 0.28, b = 0.18 }, scale = 100, opacity = 100, borderSize = 2, borderColor = { r = 1.00, g = 0.28, b = 0.18 }, texture = "eui" },
     },
 }
@@ -56,6 +65,26 @@ local function CurrentCharacterKey()
     return realm ~= "" and (name .. " - " .. realm) or name
 end
 
+local function NormalizeMultiCondition(value, allowed)
+    local selected = {}
+    if type(value) == "string" then
+        if value ~= "any" and allowed[value] then selected[value] = true end
+    elseif type(value) == "table" then
+        for key, enabled in pairs(value) do
+            if enabled == true and allowed[key] then selected[key] = true end
+        end
+    end
+    return selected
+end
+
+local function NormalizeRuleConditions(rule)
+    if type(rule.conditions) ~= "table" then rule.conditions = {} end
+    MergeMissing(rule.conditions, DEFAULT_RULES[1].conditions)
+    for key, allowed in pairs(MULTI_CONDITION_VALUES) do
+        rule.conditions[key] = NormalizeMultiCondition(rule.conditions[key], allowed)
+    end
+end
+
 local function NormalizeProfile(profile)
     if type(profile) ~= "table" then profile = {} end
     if profile.enabled == nil then profile.enabled = DEFAULT_PROFILE.enabled end
@@ -68,7 +97,7 @@ local function NormalizeProfile(profile)
         end
         if type(rule.conditions) ~= "table" then rule.conditions = {} end
         if type(rule.style) ~= "table" then rule.style = {} end
-        MergeMissing(rule.conditions, DEFAULT_RULES[1].conditions)
+        NormalizeRuleConditions(rule)
         MergeMissing(rule.style, DEFAULT_RULES[1].style)
         if rule.enabled == nil then rule.enabled = true end
     end
@@ -396,28 +425,57 @@ local function GetTraits(unit, checkQuestObjective)
     }
 end
 
+local function AnySelectionMatches(selection, predicate)
+    if selection == nil or selection == "any" then return true end
+    if type(selection) == "string" then return predicate(selection) end
+    if type(selection) ~= "table" then return false end
+    local hasSelection = false
+    for value, enabled in pairs(selection) do
+        if enabled == true then
+            hasSelection = true
+            if predicate(value) then return true end
+        end
+    end
+    return not hasSelection
+end
+
+local function HasSelection(selection)
+    if type(selection) == "string" then return selection ~= "any" end
+    if type(selection) == "table" then
+        for _, enabled in pairs(selection) do
+            if enabled == true then return true end
+        end
+    end
+    return false
+end
+
 local function Matches(rule, unit, traits)
     if not rule.enabled then return false end
     local c = rule.conditions or {}
-    if c.unitType and c.unitType ~= "any" then
-        if c.unitType == "creature" then
-            if not traits.isCreature then return false end
-        elseif c.unitType ~= traits.unitType then return false end
-    end
-    if c.reaction and c.reaction ~= "any" and c.reaction ~= traits.reaction then return false end
-    if c.classification and c.classification ~= "any" and c.classification ~= traits.classification then return false end
+    if not AnySelectionMatches(c.unitType, function(value)
+        if value == "creature" then return traits.isCreature == true end
+        return value == traits.unitType
+    end) then return false end
+    if not AnySelectionMatches(c.reaction, function(value) return value == traits.reaction end) then return false end
+    if not AnySelectionMatches(c.classification, function(value) return value == traits.classification end) then return false end
     if c.target == "yes" and traits.target ~= true then return false end
     if c.target == "no" and traits.target ~= false then return false end
+    if type(c.target) == "table" and HasSelection(c.target) then
+        local targetState = traits.target == true and "yes" or traits.target == false and "no" or nil
+        if not AnySelectionMatches(c.target, function(value) return value == targetState end) then return false end
+    end
     if c.questObjective == "yes" and traits.questObjective ~= true then return false end
     if c.questObjective == "no" and traits.questObjective ~= false then return false end
-    if c.castState == "none" and traits.castState ~= "none" then return false end
-    if c.castState == "casting" and traits.castState ~= "casting" then return false end
-    if c.castState == "channel" and traits.castState ~= "channel" then return false end
-    if c.castState == "empowered" and traits.castState ~= "empowered" then return false end
-    if c.castState == "interruptible" and traits.interruptible ~= "interruptible" then return false end
-    if c.castState == "uninterruptible" and traits.interruptible ~= "uninterruptible" then return false end
-    if c.spellSchool and c.spellSchool ~= "any" then
-        if traits.castState == "none" or c.spellSchool ~= traits.spellSchool then return false end
+    if not AnySelectionMatches(c.castState, function(value)
+        if value == "interruptible" or value == "uninterruptible" then
+            return traits.interruptible == value
+        end
+        return traits.castState == value
+    end) then return false end
+    if not AnySelectionMatches(c.spellSchool, function(value)
+        return traits.castState ~= "none" and value == traits.spellSchool
+    end) then
+        return false
     end
     for key, expected in pairs(c) do
         local predicate = addon.customConditions and addon.customConditions[key]
@@ -456,7 +514,7 @@ local function UpdateCombatLogRegistration()
     if db.enabled ~= false then
         for _, rule in ipairs(db.rules) do
             local conditions = rule.conditions
-            if rule.enabled ~= false and conditions and conditions.spellSchool and conditions.spellSchool ~= "any" then
+            if rule.enabled ~= false and conditions and HasSelection(conditions.spellSchool) then
                 shouldListen = true
                 break
             end
