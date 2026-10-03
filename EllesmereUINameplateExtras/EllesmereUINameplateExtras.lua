@@ -4,19 +4,19 @@ local DEFAULT_RULES = {
     {
         name = "Current Target",
         enabled = true,
-        conditions = { unitType = "any", reaction = "any", classification = "any", target = "yes", castState = "any", spellSchool = "any" },
+        conditions = { unitType = "any", reaction = "any", classification = "any", target = "yes", questObjective = "any", castState = "any", spellSchool = "any" },
         style = { healthColorEnabled = true, healthColor = { r = 0.12, g = 0.92, b = 0.67 }, scale = 115, opacity = 100, borderSize = 2, borderColor = { r = 0.12, g = 0.92, b = 0.67 }, texture = "eui" },
     },
     {
         name = "Elite Enemies",
         enabled = true,
-        conditions = { unitType = "any", reaction = "enemy", classification = "elite", target = "any", castState = "any", spellSchool = "any" },
+        conditions = { unitType = "any", reaction = "enemy", classification = "elite", target = "any", questObjective = "any", castState = "any", spellSchool = "any" },
         style = { healthColorEnabled = true, healthColor = { r = 0.72, g = 0.36, b = 1.00 }, scale = 105, opacity = 100, borderSize = 2, borderColor = { r = 0.72, g = 0.36, b = 1.00 }, texture = "eui" },
     },
     {
         name = "Enemy Casting",
         enabled = true,
-        conditions = { unitType = "any", reaction = "enemy", classification = "any", target = "any", castState = "casting", spellSchool = "any" },
+        conditions = { unitType = "any", reaction = "enemy", classification = "any", target = "any", questObjective = "any", castState = "casting", spellSchool = "any" },
         style = { healthColorEnabled = true, healthColor = { r = 1.00, g = 0.28, b = 0.18 }, scale = 100, opacity = 100, borderSize = 2, borderColor = { r = 1.00, g = 0.28, b = 0.18 }, texture = "eui" },
     },
 }
@@ -191,7 +191,7 @@ local function ReadCast(unit)
     return castState, interruptible, GetSchool(spellID)
 end
 
-local function GetTraits(unit)
+local function GetTraits(unit, checkQuestObjective)
     local player = SafeBool(UnitIsPlayer(unit))
     local unitType
     if player == true then
@@ -214,12 +214,18 @@ local function GetTraits(unit)
     elseif classification == "worldboss" then classification = "boss" end
     local castState, interruptible, spellSchool = ReadCast(unit)
     local isTarget = SafeBool(UnitIsUnit(unit, "target"))
+    local questObjective
+    if checkQuestObjective and NP and NP.IsQuestMob then
+        local ok, value = pcall(NP.IsQuestMob, unit)
+        if ok then questObjective = SafeBool(value) end
+    end
     return {
         unitType = unitType,
         isCreature = player == false,
         reaction = reaction,
         classification = classification,
         target = isTarget,
+        questObjective = questObjective,
         tapDenied = UnitIsTapDenied and SafeBool(UnitIsTapDenied(unit)),
         castState = castState,
         interruptible = interruptible,
@@ -239,6 +245,8 @@ local function Matches(rule, unit, traits)
     if c.classification and c.classification ~= "any" and c.classification ~= traits.classification then return false end
     if c.target == "yes" and traits.target ~= true then return false end
     if c.target == "no" and traits.target ~= false then return false end
+    if c.questObjective == "yes" and traits.questObjective ~= true then return false end
+    if c.questObjective == "no" and traits.questObjective ~= false then return false end
     if c.castState == "none" and traits.castState ~= "none" then return false end
     if c.castState == "casting" and traits.castState ~= "casting" then return false end
     if c.castState == "channel" and traits.castState ~= "channel" then return false end
@@ -254,7 +262,7 @@ local function Matches(rule, unit, traits)
             local ok, matches = pcall(predicate, unit, traits, expected, rule)
             if not ok or not matches then return false end
         elseif key ~= "unitType" and key ~= "reaction" and key ~= "classification"
-           and key ~= "target" and key ~= "castState" and key ~= "spellSchool" then
+           and key ~= "target" and key ~= "questObjective" and key ~= "castState" and key ~= "spellSchool" then
             return false
         end
     end
@@ -264,7 +272,16 @@ end
 local function FindRule(unit)
     GetSettings()
     if db.enabled == false then return nil end
-    local traits = GetTraits(unit)
+    local checkQuestObjective = false
+    for _, candidate in ipairs(db.rules) do
+        local conditions = candidate.conditions
+        if candidate.enabled ~= false and conditions and conditions.questObjective
+           and conditions.questObjective ~= "any" then
+            checkQuestObjective = true
+            break
+        end
+    end
+    local traits = GetTraits(unit, checkQuestObjective)
     for index, rule in ipairs(db.rules) do
         if Matches(rule, unit, traits) then return rule, index, traits end
     end
@@ -466,6 +483,7 @@ end
 
 local events = {
     "ADDON_LOADED",
+    "QUEST_LOG_UPDATE",
     "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED",
     "PLAYER_TARGET_CHANGED", "PLAYER_FOCUS_CHANGED", "PLAYER_ENTERING_WORLD",
     "UNIT_FLAGS", "UNIT_FACTION", "UNIT_NAME_UPDATE",

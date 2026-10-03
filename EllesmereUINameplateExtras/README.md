@@ -7,7 +7,7 @@ This extensible add-on currently provides one feature: **Nameplate Style**. It a
 
 Three starter rules are enabled: current target, elite enemy, and enemy casting. Add up to 12 rules, edit their conditions and visual effects, and move them to change priority. New rules start enabled for the current target. The first enabled matching rule wins.
 
-Conditions currently include player/NPC/pet/creature, friendly/enemy/neutral, normal/elite/rare/rare elite/boss/minor, current-target state, cast/channel/empowered/interruptibility, and spell school. Combat-log school tracking is enabled only when at least one enabled rule selects a specific school. A spell school is learned when its cast-start event is seen; unknown spells do not match school-specific rules.
+Conditions currently include player/NPC/pet/creature, friendly/enemy/neutral, normal/elite/rare/rare elite/boss/minor, current-target state, an optional active-quest-objective toggle, cast/channel/empowered/interruptibility, and spell school. Quest matching uses EUI's cached tooltip-based detector for incomplete objectives in the player's own quest log, following EUI's Show In Instances setting. Combat-log school tracking is enabled only when at least one enabled rule selects a specific school. A spell school is learned when its cast-start event is seen; unknown spells do not match school-specific rules.
 
 Effects include health-bar color, whole-nameplate scale and opacity, an additional colored health-bar border, and a choice of EUI/flat/Blizzard health texture.
 

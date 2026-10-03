@@ -197,6 +197,14 @@ local function BuildRulesPage(parent, yOffset)
     ConditionDropdown("Classification", "classification", CLASSIFICATIONS, CLASSIFICATION_ORDER,
         "Uses the unit's game classification: normal, elite, rare, rare elite, boss, or minor.")
     ConditionDropdown("Target state", "target", TARGETS, TARGET_ORDER)
+    _, h = W:Toggle(parent, "Require active quest objective", y,
+        function() return GetRule().conditions.questObjective == "yes" end,
+        function(value)
+            GetRule().conditions.questObjective = value and "yes" or "any"
+            Changed()
+        end,
+        "When on, matches only units shown as incomplete objectives in your own quest log. Uses EUI's quest detector and follows its Show In Instances setting. When off, quest status does not restrict this rule.")
+    y = y - h
     ConditionDropdown("Cast state", "castState", CAST_STATES, CAST_ORDER)
     ConditionDropdown("Spell school", "spellSchool", SCHOOLS, SCHOOL_ORDER,
         "Learns spell schools from combat-log cast starts while a school rule is enabled. Unknown spells do not match a specific school.")
