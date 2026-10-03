@@ -24,7 +24,7 @@ Tap-denied enemies keep EUI's tapped health-bar color; this plugin suspends only
 Appearance is grouped into **Nameplate**, **Health Bar**, and **Cast Bar**. In the Cast Bar section, enable **Override cast bar** for the selected rule. Existing rules leave this off. Inactive controls remain visible but dimmed, with tooltips explaining what to enable.
 
 - **Custom cast color** tints the fill and uninterruptible overlay; the interrupted flash and other EUI cast indicators are preserved.
-- **Cast-bar texture** offers EUI, flat, and Blizzard status-bar textures. Stock Blizzard-style cast artwork retains its atlas; this texture override applies to EUI and Classic styles.
+- **Cast-bar texture** offers the same built-in and SharedMedia texture choices as the health bar. Stock Blizzard-style cast artwork retains its atlas; this texture override applies to EUI and Classic styles.
 - **Custom cast opacity** fades the cast subtree, including when casts are lifted in front of nameplates.
 - **Additional cast border** adds its own outline with color and thickness controls without replacing the EUI border.
 

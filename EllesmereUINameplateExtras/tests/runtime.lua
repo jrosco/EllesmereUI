@@ -106,6 +106,13 @@ plate.castSpark:SetPoint("CENTER", plate.cast:GetStatusBarTexture(), "RIGHT", 0,
 EllesmereNameplates_NS = {
     plates = { nameplate1 = plate }, friendlyPlates = {},
     IsQuestMob = function() return questObjective end,
+    healthBarTextures = {
+        blizzard = "EUI-Blizzard", melli = "EUI-Melli", ["sm:Test Texture"] = "SM-Test-Path",
+    },
+    healthBarTextureNames = {
+        none = "None", blizzard = "Blizzard", melli = "Melli", ["sm:Test Texture"] = "Test Texture",
+    },
+    healthBarTextureOrder = { "none", "blizzard", "melli", "---", "sm:Test Texture" },
 }
 function EllesmereNameplates_NS.ApplyCastBarTexture(p)
     p.cast:SetStatusBarTexture("new-engine-texture")
@@ -180,7 +187,7 @@ function W:Dropdown(_, text, _, values, get, set) rows[text] = { get = get, set 
 function W:DualRow(_, _, config, right)
     for _, cfg in ipairs({ config, right }) do
         if cfg.type == "colorpicker" then assert(type(cfg.getValue()) == "number") end
-        rows[cfg.text] = { get = cfg.getValue, set = cfg.setValue, disabled = cfg.disabled }
+        rows[cfg.text] = { get = cfg.getValue, set = cfg.setValue, disabled = cfg.disabled, values = cfg.values }
     end
     return {}, 50
 end
@@ -191,6 +198,7 @@ function W:ColorPicker(_, text, _, get, set)
 end
 EllesmereUI = {
     Widgets = W,
+    ResolveTexturePath = function(textureTable, key, fallback) return textureTable[key] or fallback end,
     CONTENT_PAD = 20,
     PanelPP = {
         Size = function(frame, width, height) frame:SetSize(width, height) end,
@@ -209,6 +217,8 @@ assert(registeredID == "EllesmereUINameplateExtras")
 assert(spec.label == "Nameplate Extras")
 assert(spec.modules[1].key == "NameplateStyle" and spec.modules[1].title == "Nameplate Style")
 spec.modules[1].buildPage("Rules", parent, 0)
+assert(rows["Health-bar texture"].values.melli == "Melli")
+assert(rows["Cast-bar texture"].values["sm:Test Texture"] == "Test Texture")
 local function HasHeader(prefix, suffix)
     for _, text in ipairs(sectionHeaders) do
         if text:find(prefix, 1, true) == 1 and text:sub(-#suffix) == suffix then return true end
@@ -364,6 +374,11 @@ assert(plate.cast:GetStatusBarTexture() == unchangedFill, "ordinary refresh must
 EllesmereNameplates_NS.ApplyCastBarTexture(plate)
 assert(plate.cast:GetStatusBarTexture():GetTexture() == "Interface\\Buttons\\WHITE8x8", "texture survives engine refresh")
 assert(plate.castSpark.point[2] == plate.cast:GetStatusBarTexture(), "spark follows engine texture refresh")
+rows["Cast-bar texture"].set("melli"); Flush()
+assert(plate.cast:GetStatusBarTexture():GetTexture() == "EUI-Melli", "cast selector should resolve EUI textures")
+rows["Cast-bar texture"].set("sm:Test Texture"); Flush()
+assert(plate.cast:GetStatusBarTexture():GetTexture() == "SM-Test-Path", "cast selector should resolve SharedMedia textures")
+rows["Cast-bar texture"].set("flat"); Flush()
 rows["Override cast bar"].set(false); Flush()
 assert(plate.cast:GetStatusBarTexture():GetTexture() == "new-engine-texture")
 assert(plate.castSpark.point[2] == plate.cast:GetStatusBarTexture(), "spark follows restored texture")
@@ -414,6 +429,11 @@ for _, frame in ipairs(frames) do
     if frame.parent == plate and frame.kind == "Frame" then healthBorder = frame end
 end
 assert(healthBorder and healthBorder.shown)
+rows["Health-bar texture"].set("melli"); Flush()
+assert(plate.health.texture == "EUI-Melli", "health selector should resolve EUI textures")
+rows["Health-bar texture"].set("sm:Test Texture"); Flush()
+assert(plate.health.texture == "SM-Test-Path", "health selector should resolve SharedMedia textures")
+rows["Health-bar texture"].set("flat"); Flush()
 rows["Additional health border"].set(false); Flush()
 assert(not healthBorder.shown and rows["Health border color"].disabled())
 assert(api.GetRules()[1].style.borderSize == 4, "border toggle must preserve size")

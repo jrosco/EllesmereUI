@@ -19,8 +19,32 @@ local CAST_STATES = {
 local CAST_ORDER = { "any", "none", "casting", "channel", "empowered", "interruptible", "uninterruptible" }
 local SCHOOLS = { any = "Any spell school", physical = "Physical", holy = "Holy", fire = "Fire", nature = "Nature", frost = "Frost", shadow = "Shadow", arcane = "Arcane", mixed = "Mixed" }
 local SCHOOL_ORDER = { "any", "physical", "holy", "fire", "nature", "frost", "shadow", "arcane", "mixed" }
-local TEXTURES = { eui = "Use EUI texture", flat = "Flat", blizzard = "Blizzard" }
-local TEXTURE_ORDER = { "eui", "flat", "blizzard" }
+
+local function GetBarTextureOptions()
+    local np = _G.EllesmereNameplates_NS
+    local names = np and np.healthBarTextureNames or {}
+    local order = np and np.healthBarTextureOrder or {}
+    local paths = np and np.healthBarTextures or {}
+    local values = { eui = "Use EUI texture", flat = "Flat" }
+    local keys = { "eui", "flat", "---" }
+    local seen = { eui = true, flat = true }
+    for _, key in ipairs(order) do
+        if key == "---" then
+            if keys[#keys] ~= "---" then keys[#keys + 1] = key end
+        else
+            if not seen[key] then
+                values[key] = names[key] or key
+                keys[#keys + 1] = key
+                seen[key] = true
+            end
+        end
+    end
+    values._menuOpts = {
+        itemHeight = 28,
+        background = function(key) return paths[key] end,
+    }
+    return values, keys
+end
 
 local function DB()
     return addon.GetSettings()
@@ -85,6 +109,7 @@ local function BuildRulesPage(parent, yOffset)
     local _, h
     local db = DB()
     local rule, selected = GetRule()
+    local barTextureValues, barTextureOrder = GetBarTextureOptions()
 
     _, h = W:SectionHeader(parent,
         RuleHeading(("RULE ORDER - POSITION %d OF %d"):format(selected, #db.rules), rule, selected), y)
@@ -269,7 +294,7 @@ local function BuildRulesPage(parent, yOffset)
         setValue = function(r, g, b) GetRule().style.healthColor = { r = r, g = g, b = b }; Changed() end,
     }); y = y - h
     _, h = W:DualRow(parent, y, {
-        type = "dropdown", text = "Health-bar texture", values = TEXTURES, order = TEXTURE_ORDER,
+        type = "dropdown", text = "Health-bar texture", values = barTextureValues, order = barTextureOrder,
         disabled = HealthOff, disabledTooltip = "Enable Override health bar first.",
         tooltip = "Use EUI texture restores the current EUI texture. Choose Flat or Blizzard to override it.",
         getValue = function() return GetRule().style.texture or "eui" end,
@@ -338,7 +363,7 @@ local function BuildRulesPage(parent, yOffset)
     _, h = W:DualRow(parent, y, colorToggle,
         CastColor("Cast fill color", "castColor", "castColorEnabled")); y = y - h
     _, h = W:DualRow(parent, y, {
-        type = "dropdown", text = "Cast-bar texture", values = TEXTURES, order = TEXTURE_ORDER,
+        type = "dropdown", text = "Cast-bar texture", values = barTextureValues, order = barTextureOrder,
         disabled = CastOff, disabledTooltip = "Enable Override cast bar first.",
         tooltip = "Use EUI texture leaves the current texture unchanged. Flat and Blizzard apply to EUI and Classic styles; stock Blizzard-style cast artwork retains its atlas.",
         getValue = function() return GetRule().style.castTexture or "eui" end,

@@ -113,6 +113,16 @@ local function TextureOf(statusBar)
     return fill:GetTexture()
 end
 
+local function ResolveBarTexturePath(key)
+    if key == "eui" then return nil end
+    if key == "flat" then return "Interface\\Buttons\\WHITE8x8" end
+    local nameplates = _G.EllesmereNameplates_NS
+    if EllesmereUI and EllesmereUI.ResolveTexturePath and nameplates and nameplates.healthBarTextures then
+        return EllesmereUI.ResolveTexturePath(nameplates.healthBarTextures, key, "Interface\\Buttons\\WHITE8x8")
+    end
+    return "Interface\\Buttons\\WHITE8x8"
+end
+
 local function EnsureBorder(plate, state)
     if state.border then return state.border end
     if not plate.health then return nil end
@@ -324,6 +334,7 @@ local function ResetStyle(plate, state)
     end
     if state.hadTexture and state.baseTexture and plate.health then
         plate.health:SetStatusBarTexture(state.baseTexture)
+        state.appliedHealthTexture = nil
         if plate.absorb and NP and NP.NP_LayoutAbsorbBars then
             NP.NP_LayoutAbsorbBars(plate, plate.health, plate._absEdge)
         end
@@ -372,15 +383,21 @@ local function ApplyStyle(plate)
         plate.health:SetStatusBarColor(c.r, c.g, c.b, c.a)
         state.hadColor = nil
     end
-    local textureChanged = false
     local texture = style.healthEnabled ~= false and style.texture or "eui"
-    if texture == "flat" then
-        plate.health:SetStatusBarTexture("Interface\\Buttons\\WHITE8x8"); state.hadTexture = true; textureChanged = true
-    elseif texture == "blizzard" then
-        plate.health:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar"); state.hadTexture = true; textureChanged = true
-    elseif state.hadTexture and state.baseTexture then
-        plate.health:SetStatusBarTexture(state.baseTexture)
-        state.hadTexture = nil; textureChanged = true
+    local texturePath = ResolveBarTexturePath(texture or "eui")
+    local textureChanged = false
+    if texturePath then
+        if state.appliedHealthTexture ~= texturePath or TextureOf(plate.health) ~= texturePath then
+            plate.health:SetStatusBarTexture(texturePath)
+            state.hadTexture = true
+            state.appliedHealthTexture = texturePath
+            textureChanged = true
+        end
+    elseif state.appliedHealthTexture then
+        if state.baseTexture then plate.health:SetStatusBarTexture(state.baseTexture) end
+        state.hadTexture = nil
+        state.appliedHealthTexture = nil
+        textureChanged = true
     end
     if textureChanged and plate.absorb and NP and NP.NP_LayoutAbsorbBars then
         NP.NP_LayoutAbsorbBars(plate, plate.health, plate._absEdge)

@@ -6,11 +6,17 @@ local defaults = {
     castBorderSize = 2,
     castOpacity = 100,
 }
-local textures = {
-    flat = "Interface\\Buttons\\WHITE8x8",
-    blizzard = "Interface\\TargetingFrame\\UI-StatusBar",
-}
 EllesmereUINameplateExtras.CastStyleDefaults = defaults
+
+local function ResolveTexturePath(key)
+    if key == "eui" or key == nil then return nil end
+    if key == "flat" then return "Interface\\Buttons\\WHITE8x8" end
+    local np = _G.EllesmereNameplates_NS
+    if EllesmereUI and EllesmereUI.ResolveTexturePath and np and np.healthBarTextures then
+        return EllesmereUI.ResolveTexturePath(np.healthBarTextures, key, "Interface\\Buttons\\WHITE8x8")
+    end
+    return "Interface\\Buttons\\WHITE8x8"
+end
 
 local function PaintColor(plate, state, texture, entry)
     local style = state.style
@@ -86,7 +92,7 @@ function addon.ApplyCastStyle(plate, style)
     local overlay = plate.castBarOverlay
     local overlayEntry = WatchColor(plate, state, overlay)
     -- Stock artwork uses memoized atlases. Leave its texture ownership with EUI.
-    local path = style and not plate._blizzCastArt and textures[style.castTexture]
+    local path = style and not plate._blizzCastArt and ResolveTexturePath(style.castTexture)
     if path ~= state.appliedTexture and (path or state.appliedTexture) then
         local baseColor = fillEntry and fillEntry.color
         state.writing = true
