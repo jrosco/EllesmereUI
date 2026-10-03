@@ -124,7 +124,7 @@ local function BuildRulesPage(parent, yOffset)
         if not EllesmereUI.IsSearchPrebuild() then
             local PP = EllesmereUI.PanelPP
             local pad = EllesmereUI.CONTENT_PAD
-            local width = (parent:GetWidth() - pad * 2) / 4
+            local width = (parent:GetWidth() - pad * 2) / 5
             row:ClearAllPoints()
             PP.Size(row, width, height)
             PP.Point(row, "TOPLEFT", parent, "TOPLEFT", pad + actionColumn * width, y)
@@ -141,6 +141,28 @@ local function BuildRulesPage(parent, yOffset)
         if #current.rules >= MAX_RULES then return end
         table.insert(current.rules, 1, NewRule(#current.rules + 1))
         current.selectedRule = 1
+        Rebuild()
+        Changed()
+    end)
+    ActionButton("Copy Rule", function()
+        local current = DB()
+        if #current.rules >= MAX_RULES then return end
+        local index = current.selectedRule
+        local source = current.rules[index]
+        if not source then return end
+        local copy = CopyRule(source)
+        local baseName = source.name or ("Rule " .. index)
+        local name = baseName .. " Copy"
+        local suffix = 2
+        local used = {}
+        for _, item in ipairs(current.rules) do used[item.name] = true end
+        while used[name] do
+            name = baseName .. " Copy " .. suffix
+            suffix = suffix + 1
+        end
+        copy.name = name
+        table.insert(current.rules, index + 1, copy)
+        current.selectedRule = index + 1
         Rebuild()
         Changed()
     end)
@@ -197,7 +219,7 @@ local function BuildRulesPage(parent, yOffset)
     ConditionDropdown("Classification", "classification", CLASSIFICATIONS, CLASSIFICATION_ORDER,
         "Uses the unit's game classification: normal, elite, rare, rare elite, boss, or minor.")
     ConditionDropdown("Target state", "target", TARGETS, TARGET_ORDER)
-    _, h = W:Toggle(parent, "Require active quest objective", y,
+    _, h = W:Toggle(parent, "Quest Objective", y,
         function() return GetRule().conditions.questObjective == "yes" end,
         function(value)
             GetRule().conditions.questObjective = value and "yes" or "any"

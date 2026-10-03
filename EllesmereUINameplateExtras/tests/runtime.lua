@@ -220,13 +220,13 @@ assert(HasHeader("MATCH CONDITIONS", "(Replacement rule)"))
 assert(HasHeader("APPEARANCE - NAMEPLATE", "(Replacement rule)"))
 assert(HasHeader("APPEARANCE - HEALTH BAR", "(Replacement rule)"))
 assert(HasHeader("APPEARANCE - CAST BAR", "(Replacement rule)"))
-local actions = { "Add Rule", "Delete Rule", "Move Rule Up", "Move Rule Down" }
+local actions = { "Add Rule", "Copy Rule", "Delete Rule", "Move Rule Up", "Move Rule Down" }
 for index, text in ipairs(actions) do
     local action = rows[text]
     assert(action.y == rows[actions[1]].y, "action buttons must share a row")
-    Near(action.row.width, 190, "action column width")
-    Near(action.row.point[4], 20 + (index - 1) * 190, "left-to-right button order")
-    Near(action.button.width, 178, "button fits its column")
+    Near(action.row.width, 152, "action column width")
+    Near(action.row.point[4], 20 + (index - 1) * 152, "left-to-right button order")
+    Near(action.button.width, 140, "button fits its column")
 end
 rows["Nameplate size (%)"].set(120)
 rows["Health-bar color"].set(0.9, 0.8, 0.7)
@@ -260,17 +260,25 @@ assert(renamed.style == style and renamed.conditions == conditions, "rename chan
 rows["Rule name"].set(" \t\n ")
 assert(renamed.name == "My Target Rule", "blank name replaced existing name")
 local oldNameField = rows["Rule name"]
-rows["Edit rule"].set("2")
-assert(HasHeader("RULE ORDER - POSITION 2 OF 2", "(Replacement rule)"))
+rows["Copy Rule"].click(); Flush()
+local copy = api.GetRules()[2]
+assert(copy ~= renamed and copy.name == "My Target Rule Copy", "copy did not create a named rule")
+assert(copy.conditions ~= renamed.conditions and copy.style ~= renamed.style, "copy shares mutable rule tables")
+assert(copy.conditions.target == renamed.conditions.target and copy.style.scale == renamed.style.scale,
+    "copy did not preserve rule settings")
+assert(api.GetSettings().selectedRule == 2 and rows["Rule name"].get() == copy.name,
+    "copy was not selected for editing")
+rows["Edit rule"].set("3")
+assert(HasHeader("RULE ORDER - POSITION 3 OF 3", "(Replacement rule)"))
 oldNameField.set("Target Rule")
-assert(renamed.name == "Target Rule" and api.GetRules()[2].name == "Replacement rule",
+assert(renamed.name == "Target Rule" and api.GetRules()[3].name == "Replacement rule",
     "focus-loss commit renamed the wrong rule")
 rows["Edit rule"].set("1")
 assert(rows["Rule name"].get() == "Target Rule", "rename lost after page rebuild")
 rows["Move Rule Down"].click(); Flush()
-assert(HasHeader("RULE ORDER - POSITION 2 OF 2", "(Target Rule)") and api.GetRules()[2] == renamed)
+assert(HasHeader("RULE ORDER - POSITION 2 OF 3", "(Target Rule)") and api.GetRules()[2] == renamed)
 rows["Move Rule Up"].click(); Flush()
-assert(HasHeader("RULE ORDER - POSITION 1 OF 2", "(Target Rule)") and api.GetRules()[1] == renamed)
+assert(HasHeader("RULE ORDER - POSITION 1 OF 3", "(Target Rule)") and api.GetRules()[1] == renamed)
 
 EllesmereUI.IsSearchPrebuild = function() return true end
 spec.modules[1].buildPage("Rules", {}, 0)
@@ -454,4 +462,4 @@ EllesmereUI.IsSearchPrebuild = function() return true end
 spec.modules[1].buildPage("Rules", {}, 0)
 EllesmereUI.IsSearchPrebuild = function() return false end
 
-print("PASS: settings, rules, search, scaling, health/cast override controls, engine repaints, restoration, recycling")
+print("PASS: settings, rules, copy, search, scaling, health/cast overrides, engine repaints, restoration, recycling")
