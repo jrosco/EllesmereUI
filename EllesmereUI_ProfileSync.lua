@@ -113,111 +113,84 @@ do
         return merged or staticEx
     end
 
-    -- Selective deep-copy: src minus excluded keys (flat "barPositions" or wildcard
-    -- "bars.*.growDirection" = skip that key in any sub-table of "bars").
-    local function SelectiveCopy(src, exclusions, parentPath)
+    -- Consume one path segment, combining exact and wildcard descendants. Keeping
+    -- paths relative makes the same rules apply at every depth, including arrays.
+    local function ChildExclusions(exclusions, key)
+        local children = {}
+        local keyStr = tostring(key)
+        for path in pairs(exclusions) do
+            local head, tail = path:match("^([^.]+)%.(.+)$")
+            head = head or path
+            if head == keyStr or head == "*" then
+                if not tail then return true, children end
+                children[tail] = true
+            end
+        end
+        return false, children
+    end
+
+    local function ExclusionsAtPath(exclusions, parentPath)
+        exclusions = exclusions or {}
+        if parentPath then
+            for key in parentPath:gmatch("[^.]+") do
+                local excluded, children = ChildExclusions(exclusions, key)
+                if excluded then return { ["*"] = true } end
+                exclusions = children
+            end
+        end
+        return exclusions
+    end
+
+    local function CopyTree(src, exclusions)
         if type(src) ~= "table" then return src end
         local copy = {}
         for k, v in pairs(src) do
-            local keyStr = tostring(k)
-            local fullKey = parentPath and (parentPath .. "." .. keyStr) or keyStr
-            if not exclusions[fullKey] then
-                if type(v) == "table" then
-                    -- Wildcard parent check (e.g. "bars" in "bars.*.X")
-                    local isWildcardParent = false
-                    local childExclusions = nil
-                    for exKey in pairs(exclusions) do
-                        local prefix, childKey = exKey:match("^(.-)%.%*%.(.+)$")
-                        -- Full-path match only (a bare-name collision is not a wildcard parent)
-                        if prefix and fullKey == prefix then
-                            isWildcardParent = true
-                            if not childExclusions then childExclusions = {} end
-                            childExclusions[childKey] = true
-                        end
-                    end
-                    if isWildcardParent and childExclusions then
-                        -- Copy the container but apply child exclusions to each sub-table
-                        local containerCopy = {}
-                        for ck, cv in pairs(v) do
-                            if type(cv) == "table" then
-                                local subCopy = {}
-                                for sk, sv in pairs(cv) do
-                                    if not childExclusions[tostring(sk)] then
-                                        if type(sv) == "table" then
-                                            subCopy[sk] = SelectiveCopy(sv, {})
-                                        else
-                                            subCopy[sk] = sv
-                                        end
-                                    end
-                                end
-                                containerCopy[ck] = subCopy
-                            else
-                                containerCopy[ck] = cv
-                            end
-                        end
-                        copy[k] = containerCopy
-                    else
-                        copy[k] = SelectiveCopy(v, exclusions, fullKey)
-                    end
-                else
-                    copy[k] = v
-                end
-            end
+            local excluded, children = ChildExclusions(exclusions, k)
+            if not excluded then copy[k] = CopyTree(v, children) end
         end
         return copy
     end
+
+    -- Selective deep-copy: source state minus exact/wildcard excluded paths.
+    local function SelectiveCopy(src, exclusions, parentPath)
+        return CopyTree(src, ExclusionsAtPath(exclusions, parentPath))
+    end
     EllesmereUI._SelectiveCopy = SelectiveCopy
 
-    -- Exclusion-aware deep overlay for destinations with existing data: writes src into dst
-    -- leaf-by-leaf wherever an exclusion path (flat/dotted/wildcard) touches the subtree, so
-    -- excluded keys keep dest values (replacing a parent whole would delete them).
-    function EllesmereUI._SelectiveOverlay(src, dst, exclusions, deepCopy, parentPath)
-        for k, v in pairs(src) do
-            local keyStr = tostring(k)
-            local fullKey = parentPath and (parentPath .. "." .. keyStr) or keyStr
-            if not exclusions[fullKey] then
-                if type(v) == "table" then
-                    -- Wildcard parent and/or dotted exclusions deeper in this subtree
-                    local childExclusions = nil
-                    local hasNested = false
-                    for exKey in pairs(exclusions) do
-                        local prefix, childKey = exKey:match("^(.-)%.%*%.(.+)$")
-                        -- Full-path match only (same rule as SelectiveCopy)
-                        if prefix and fullKey == prefix then
-                            if not childExclusions then childExclusions = {} end
-                            childExclusions[childKey] = true
-                        elseif exKey:sub(1, #fullKey + 1) == (fullKey .. ".") then
-                            hasNested = true
-                        end
-                    end
-                    if childExclusions then
-                        -- Merge each sub-table, preserving excluded child keys
-                        if type(dst[k]) ~= "table" then dst[k] = {} end
-                        local dstContainer = dst[k]
-                        for ck, cv in pairs(v) do
-                            if type(cv) == "table" then
-                                if type(dstContainer[ck]) ~= "table" then dstContainer[ck] = {} end
-                                local dstSub = dstContainer[ck]
-                                for sk, sv in pairs(cv) do
-                                    if not childExclusions[tostring(sk)] then
-                                        dstSub[sk] = type(sv) == "table" and deepCopy(sv) or sv
-                                    end
-                                end
-                            else
-                                dstContainer[ck] = cv
-                            end
-                        end
-                    elseif hasNested then
-                        if type(dst[k]) ~= "table" then dst[k] = {} end
-                        EllesmereUI._SelectiveOverlay(v, dst[k], exclusions, deepCopy, fullKey)
-                    else
-                        dst[k] = deepCopy(v)
-                    end
-                else
-                    dst[k] = v
-                end
+    local OverlayTree
+    local function OverlayValue(src, dst, key, exclusions)
+        local excluded, children = ChildExclusions(exclusions, key)
+        if excluded then return end
+        local value = dst[key]
+        if type(src) == "table" then
+            if type(value) ~= "table" then
+                value = {}
+                dst[key] = value
             end
+            OverlayTree(src, value, children)
+        elseif type(value) == "table" and next(children) then
+            -- A missing/scalar source cannot hold protected destination children.
+            -- Retain their live containers, pruning every unprotected sibling.
+            OverlayTree(nil, value, children)
+            if not next(value) then dst[key] = src end
+        else
+            dst[key] = src
         end
+    end
+
+    OverlayTree = function(src, dst, exclusions)
+        for k in pairs(dst) do
+            if not src or src[k] == nil then OverlayValue(nil, dst, k, exclusions) end
+        end
+        if src then
+            for k, v in pairs(src) do OverlayValue(v, dst, k, exclusions) end
+        end
+    end
+
+    -- Replace non-excluded state, including deletions, while updating surviving
+    -- destination tables in place. deepCopy stays in the integration signature.
+    function EllesmereUI._SelectiveOverlay(src, dst, exclusions, deepCopy, parentPath)
+        OverlayTree(src, dst, ExclusionsAtPath(exclusions, parentPath))
     end
 
     function EllesmereUI.IsProfileSynced(folder, profileName)
