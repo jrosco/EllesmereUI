@@ -304,7 +304,7 @@ end
 local function GetState(plate)
     local state = states[plate]
     if not state then
-        state = { baseScale = plate:GetScale(), baseAlpha = 1, alphaFactor = 1, scaleFactor = 1 }
+        state = { baseScale = plate:GetScale(), baseAlpha = plate:GetAlpha(), alphaFactor = 1, scaleFactor = 1 }
         states[plate] = state
     end
     return state
@@ -560,12 +560,23 @@ end
 
 local function SetScaleFactor(plate, state, factor)
     state.scaleFactor = factor
+    local scale = state.baseScale * factor
+    if plate:GetScale() == scale then return end
     state.writingScale = true
-    plate:SetScale(state.baseScale * factor)
+    plate:SetScale(scale)
     state.writingScale = nil
+    if NP and NP.RefreshCastOverlay then NP.RefreshCastOverlay(plate) end
 end
 
-local function ResetStyle(plate, state)
+local function ApplyAlpha(plate, state)
+    local alpha = state.baseAlpha * state.alphaFactor
+    if plate:GetAlpha() == alpha then return end
+    state.writingAlpha = true
+    plate:SetAlpha(alpha)
+    state.writingAlpha = nil
+end
+
+local function ResetStyle(plate, state, released)
     if addon.ApplyCastStyle then addon.ApplyCastStyle(plate, nil) end
     if state.border then state.border:Hide() end
     state.writingHealth = true
@@ -584,8 +595,13 @@ local function ResetStyle(plate, state)
     if state.scaleFactor and state.scaleFactor ~= 1 and plate.SetScale then
         SetScaleFactor(plate, state, 1)
     end
-    if state.alphaFactor and state.alphaFactor ~= 1 and plate.SetAlpha then
-        plate:SetAlpha(state.baseAlpha or 1)
+    -- ClearUnit has already reset the engine's pool state. Do not restore the
+    -- departing unit's alpha, including when the engine skipped its alpha setter.
+    if released then state.baseAlpha = 1 end
+    local hadAlpha = state.alphaFactor ~= 1
+    state.alphaFactor = 1
+    if (hadAlpha or released) and plate.SetAlpha then
+        ApplyAlpha(plate, state)
     end
     state.hadColor, state.hadTexture = nil, nil
     state.scaleFactor, state.alphaFactor = 1, 1
@@ -598,14 +614,8 @@ local function ApplyStyle(plate)
     local state = GetState(plate)
     if state.unit ~= unit then
         if state.border then state.border:Hide() end
-        local oldAlphaFactor = state.alphaFactor or 1
         state.unit = unit
         state.hadColor, state.hadTexture = nil, nil
-        if NP and type(plate._ntCurAlpha) == "number" then
-            state.baseAlpha = plate._ntCurAlpha
-        elseif oldAlphaFactor > 0 then
-            state.baseAlpha = plate:GetAlpha() / oldAlphaFactor
-        end
     end
     local rule, _, traits = FindRule(unit)
     rule = rule and rule or nil
@@ -649,7 +659,7 @@ local function ApplyStyle(plate)
     local opacity = math.max(0, math.min(100, tonumber(style.opacity) or 100)) / 100
     SetScaleFactor(plate, state, scale)
     state.alphaFactor = opacity
-    if plate.SetAlpha then plate:SetAlpha((state.baseAlpha or 1) * opacity) end
+    if plate.SetAlpha then ApplyAlpha(plate, state) end
     if addon.ApplyCastStyle then addon.ApplyCastStyle(plate, style) end
 end
 
@@ -705,11 +715,22 @@ local function InstallPlateHooks(plate)
     hooksecurefunc(plate, "SetScale", function(self, scale)
         if state.writingScale then return end
         state.baseScale = scale
-        if state.scaleFactor ~= 1 then SetScaleFactor(self, state, state.scaleFactor) end
+        if state.scaleFactor ~= 1 then
+            SetScaleFactor(self, state, state.scaleFactor)
+        elseif NP and NP.RefreshCastOverlay then
+            NP.RefreshCastOverlay(self)
+        end
+    end)
+    -- Observe actual writes rather than NT_Apply's cache or our multiplied render
+    -- value. This also preserves independent writers and works at zero opacity.
+    hooksecurefunc(plate, "SetAlpha", function(self, alpha)
+        if state.writingAlpha then return end
+        state.baseAlpha = alpha
+        if state.alphaFactor ~= 1 then ApplyAlpha(self, state) end
     end)
     if type(plate.ClearUnit) == "function" then
         hooksecurefunc(plate, "ClearUnit", function(self)
-            ResetStyle(self, state)
+            ResetStyle(self, state, true)
             state.unit = nil
         end)
     end
@@ -729,10 +750,7 @@ InstallHooks = function()
     if NP.NT_Apply and not addon.opacityHooked then
         hooksecurefunc(NP, "NT_Apply", function(plate)
             if not plate then return end
-            local state = GetState(plate)
-            local factor = state.alphaFactor or 1
-            local alpha = plate:GetAlpha()
-            if factor > 0 then state.baseAlpha = alpha / factor end
+            -- Cached passes do not write alpha and must not recapture our paint.
             QueueRefresh()
         end)
         addon.opacityHooked = true

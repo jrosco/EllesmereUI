@@ -98,7 +98,14 @@ function plate:ApplyScale()
     self._curScale, self._destScale = 1, 1
     self:SetScale(1)
 end
-function plate:ClearUnit() self.unit = nil end
+function plate:ClearUnit()
+    -- EUI resets faded pooled plates before clearing the cache and unit.
+    if self._ntCurAlpha and self._ntCurAlpha < 1 then self:SetAlpha(1) end
+    self._ntCurAlpha, self._oorCurAlpha = nil, nil
+    self.unit = nil
+    self:SetScale(1)
+    self._curScale = nil
+end
 function plate:UpdateHealthColor() end -- EUI's cached-color path performs no setter call.
 plate.cast = CreateFrame("StatusBar", nil, plate)
 function plate.cast:GetStatusBarTexture() return self.fill end
@@ -128,6 +135,14 @@ EllesmereNameplates_NS = {
 function EllesmereNameplates_NS.ApplyCastBarTexture(p)
     p.cast:SetStatusBarTexture("new-engine-texture")
     p.castBarOverlay:SetTexture("new-engine-overlay")
+end
+function EllesmereNameplates_NS.NT_Apply(p)
+    if not p.unit then return end
+    local alpha = p._oorCurAlpha or 1 -- this fixture's plate is the current target
+    if (p._ntCurAlpha or 1) ~= alpha then
+        p._ntCurAlpha = alpha
+        p:SetAlpha(alpha)
+    end
 end
 
 local function Near(actual, expected, label)
@@ -581,14 +596,23 @@ EllesmereUI.IsSearchPrebuild = function() return false end
 spec.modules[1].buildPage("Rules", parent, 0)
 
 rows["Nameplate size (%)"].set(115); Flush()
+api.GetRules()[1].style.opacity = 50
+plate._oorCurAlpha = 0.4
+EllesmereNameplates_NS.NT_Apply(plate); Flush()
+Near(plate.alpha, 0.2, "engine root alpha composition")
+EllesmereNameplates_NS.NT_Apply(plate); Flush()
+Near(plate.alpha, 0.2, "cached engine root alpha composition")
 plate:ClearUnit()
-Near(plate.scale, 1.2, "pool release restores engine scale")
+Near(plate.scale, 1, "pool release preserves engine reset scale")
+Near(plate.alpha, 1, "pool release preserves engine reset alpha")
 plate.unit = "nameplate1"
 plate:ApplyScale(); api.Refresh(); Flush()
 Near(plate.scale, 1.15, "recycled plate scale")
+Near(plate.alpha, 0.5, "recycled plate starts with full engine alpha")
 api.GetSettings().enabled = false
 api.Refresh(); Flush()
 Near(plate.scale, 1, "disable restores engine scale")
+Near(plate.alpha, 1, "disable restores recycled engine alpha")
 
 -- Existing option callbacks must also follow a replaced SavedVariables table.
 EllesmereUINameplateExtrasDB = Settings("Late replacement", 100, 0.1)
