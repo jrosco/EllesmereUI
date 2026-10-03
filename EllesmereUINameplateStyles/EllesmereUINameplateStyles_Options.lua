@@ -81,7 +81,7 @@ local function BuildRulesPage(parent, yOffset)
     local db = DB()
     local rule, selected = GetRule()
 
-    _, h = W:SectionHeader(parent, "RULE ORDER", y); y = y - h
+    _, h = W:SectionHeader(parent, ("RULE ORDER - POSITION %d OF %d"):format(selected, #db.rules), y); y = y - h
     local labels, order = {}, {}
     for i, item in ipairs(db.rules) do
         local key = tostring(i)
@@ -111,23 +111,41 @@ local function BuildRulesPage(parent, yOffset)
             Rebuild()
         end,
     }, nil); y = y - h
-    _, h = W:Button(parent, "Add Rule", y, function()
+    local actionColumn, actionHeight = 0, 0
+    local function ActionButton(text, onClick)
+        local row, height = W:Button(parent, text, y, onClick)
+        if not EllesmereUI.IsSearchPrebuild() then
+            local PP = EllesmereUI.PanelPP
+            local pad = EllesmereUI.CONTENT_PAD
+            local width = (parent:GetWidth() - pad * 2) / 4
+            row:ClearAllPoints()
+            PP.Size(row, width, height)
+            PP.Point(row, "TOPLEFT", parent, "TOPLEFT", pad + actionColumn * width, y)
+            local button = row:GetChildren()
+            button:ClearAllPoints()
+            PP.Size(button, width - 12, 32)
+            PP.Point(button, "CENTER", row, "CENTER", 0, 0)
+        end
+        actionColumn = actionColumn + 1
+        actionHeight = math.max(actionHeight, height)
+    end
+    ActionButton("Add Rule", function()
         local current = DB()
         if #current.rules >= MAX_RULES then return end
         table.insert(current.rules, 1, NewRule(#current.rules + 1))
         current.selectedRule = 1
         Rebuild()
         Changed()
-    end); y = y - h
-    _, h = W:Button(parent, "Delete Rule", y, function()
+    end)
+    ActionButton("Delete Rule", function()
         local current = DB()
         if #current.rules <= 1 then return end
         table.remove(current.rules, current.selectedRule)
         current.selectedRule = math.min(current.selectedRule, #current.rules)
         Rebuild()
         Changed()
-    end); y = y - h
-    _, h = W:Button(parent, "Move Rule Up", y, function()
+    end)
+    ActionButton("Move Rule Up", function()
         local current = DB()
         local index = current.selectedRule
         if index <= 1 then return end
@@ -135,8 +153,8 @@ local function BuildRulesPage(parent, yOffset)
         current.selectedRule = index - 1
         Rebuild()
         Changed()
-    end); y = y - h
-    _, h = W:Button(parent, "Move Rule Down", y, function()
+    end)
+    ActionButton("Move Rule Down", function()
         local current = DB()
         local index = current.selectedRule
         if index >= #current.rules then return end
@@ -144,7 +162,8 @@ local function BuildRulesPage(parent, yOffset)
         current.selectedRule = index + 1
         Rebuild()
         Changed()
-    end); y = y - h
+    end)
+    y = y - actionHeight
 
     _, h = W:SectionHeader(parent, "MATCH CONDITIONS", y); y = y - h
     _, h = W:Toggle(parent, "Rule enabled", y,
@@ -175,19 +194,7 @@ local function BuildRulesPage(parent, yOffset)
     ConditionDropdown("Spell school", "spellSchool", SCHOOLS, SCHOOL_ORDER,
         "Learns spell schools from combat-log cast starts while a school rule is enabled. Unknown spells do not match a specific school.")
 
-    _, h = W:SectionHeader(parent, "APPEARANCE", y); y = y - h
-    _, h = W:Toggle(parent, "Override health-bar color", y,
-        function() return GetRule().style.healthColorEnabled ~= false end,
-        function(value) GetRule().style.healthColorEnabled = value; Changed() end)
-    y = y - h
-    _, h = W:ColorPicker(parent, "Health-bar color", y,
-        function()
-            local color = GetRule().style.healthColor
-            return color.r, color.g, color.b, 1
-        end,
-        function(r, g, b) GetRule().style.healthColor = { r = r, g = g, b = b }; Changed() end,
-        false)
-    y = y - h
+    _, h = W:SectionHeader(parent, "APPEARANCE - NAMEPLATE", y); y = y - h
     _, h = W:Slider(parent, "Nameplate size (%)", y, 50, 200, 5,
         function() return GetRule().style.scale or 100 end,
         function(value) GetRule().style.scale = value; Changed() end,
@@ -198,25 +205,126 @@ local function BuildRulesPage(parent, yOffset)
         function(value) GetRule().style.opacity = value; Changed() end,
         "Multiplies the nameplate's current EUI opacity by this value.")
     y = y - h
-    _, h = W:Slider(parent, "Border size", y, 0, 8, 1,
-        function() return GetRule().style.borderSize or 0 end,
-        function(value) GetRule().style.borderSize = value; Changed() end,
-        "Adds a simple colored outline around the health bar. Set to 0 to hide it.")
+    _, h = W:SectionHeader(parent, "APPEARANCE - HEALTH BAR", y); y = y - h
+    _, h = W:Toggle(parent, "Override health bar", y,
+        function() return GetRule().style.healthEnabled ~= false end,
+        function(value) GetRule().style.healthEnabled = value; Changed(); Rebuild() end,
+        "Apply the health-bar settings below when this rule wins. Off restores EUI color and texture and hides the additional border. Nameplate size, opacity and cast overrides remain independent.")
     y = y - h
-    _, h = W:ColorPicker(parent, "Border color", y,
-        function()
+    local function HealthOff() return GetRule().style.healthEnabled == false end
+    local function HealthBorderOff()
+        local style = GetRule().style
+        return HealthOff() or style.borderEnabled == false or (style.borderSize or 0) <= 0
+    end
+    _, h = W:DualRow(parent, y, {
+        type = "toggle", text = "Custom health color", disabled = HealthOff,
+        disabledTooltip = "Enable Override health bar first.",
+        getValue = function() return GetRule().style.healthColorEnabled ~= false end,
+        setValue = function(value) GetRule().style.healthColorEnabled = value; Changed(); Rebuild() end,
+    }, {
+        type = "colorpicker", text = "Health-bar color", hasAlpha = false,
+        disabled = function() return HealthOff() or GetRule().style.healthColorEnabled == false end,
+        disabledTooltip = "Enable Custom health color first.",
+        getValue = function()
+            local color = GetRule().style.healthColor
+            return color.r, color.g, color.b, 1
+        end,
+        setValue = function(r, g, b) GetRule().style.healthColor = { r = r, g = g, b = b }; Changed() end,
+    }); y = y - h
+    _, h = W:DualRow(parent, y, {
+        type = "dropdown", text = "Health-bar texture", values = TEXTURES, order = TEXTURE_ORDER,
+        disabled = HealthOff, disabledTooltip = "Enable Override health bar first.",
+        tooltip = "Use EUI texture restores the current EUI texture. Choose Flat or Blizzard to override it.",
+        getValue = function() return GetRule().style.texture or "eui" end,
+        setValue = function(value) GetRule().style.texture = value; Changed() end,
+    }, nil); y = y - h
+    _, h = W:DualRow(parent, y, {
+        type = "toggle", text = "Additional health border", disabled = HealthOff,
+        disabledTooltip = "Enable Override health bar first.",
+        getValue = function()
+            local style = GetRule().style
+            return style.borderEnabled ~= false and (style.borderSize or 0) > 0
+        end,
+        setValue = function(value)
+            local style = GetRule().style
+            style.borderEnabled = value
+            if value and (style.borderSize or 0) <= 0 then style.borderSize = 2 end
+            Changed(); Rebuild()
+        end,
+    }, {
+        type = "colorpicker", text = "Health border color", hasAlpha = false,
+        disabled = HealthBorderOff, disabledTooltip = "Enable Additional health border first.",
+        getValue = function()
             local color = GetRule().style.borderColor
             return color.r, color.g, color.b, 1
         end,
-        function(r, g, b) GetRule().style.borderColor = { r = r, g = g, b = b }; Changed() end,
-        false)
+        setValue = function(r, g, b) GetRule().style.borderColor = { r = r, g = g, b = b }; Changed() end,
+    }); y = y - h
+    _, h = W:DualRow(parent, y, {
+        type = "slider", text = "Health border size", min = 1, max = 8, step = 1,
+        disabled = HealthBorderOff, disabledTooltip = "Enable Additional health border first.",
+        tooltip = "Thickness of the additional health-bar outline. Turning the border off keeps this value and its color for later.",
+        getValue = function() return math.max(1, GetRule().style.borderSize or 2) end,
+        setValue = function(value) GetRule().style.borderSize = value; Changed() end,
+    }, nil); y = y - h
+
+    _, h = W:SectionHeader(parent, "APPEARANCE - CAST BAR", y); y = y - h
+    _, h = W:Toggle(parent, "Override cast bar", y,
+        function() return GetRule().style.castEnabled == true end,
+        function(value) GetRule().style.castEnabled = value; Changed(); Rebuild() end,
+        "Apply the cast settings below when this rule wins. Off restores EUI styling. Only affects nameplates with an EUI cast bar; friendly plates currently have none.")
     y = y - h
-    _, h = W:Dropdown(parent, "Health-bar texture", y, TEXTURES,
-        function() return GetRule().style.texture or "eui" end,
-        function(value) GetRule().style.texture = value; Changed() end,
-        TEXTURE_ORDER,
-        "Choose the normal EUI texture, a flat fill, or Blizzard's standard status-bar texture.")
-    y = y - h
+    local defaults = addon.CastStyleDefaults
+    local function CastOff() return GetRule().style.castEnabled ~= true end
+    local function CastToggle(text, key)
+        return {
+            type = "toggle", text = text, disabled = CastOff,
+            disabledTooltip = "Enable Override cast bar first.",
+            getValue = function() return GetRule().style[key] == true end,
+            setValue = function(value) GetRule().style[key] = value; Changed(); Rebuild() end,
+        }
+    end
+    local function CastColor(text, key, enabledKey)
+        return {
+            type = "colorpicker", text = text, hasAlpha = false,
+            disabled = function() return CastOff() or GetRule().style[enabledKey] ~= true end,
+            disabledTooltip = "Enable the matching cast override to edit this color.",
+            getValue = function()
+                local color = GetRule().style[key] or defaults[key]
+                return color.r, color.g, color.b, 1
+            end,
+            setValue = function(r, g, b) GetRule().style[key] = { r = r, g = g, b = b }; Changed() end,
+        }
+    end
+    local colorToggle = CastToggle("Custom cast color", "castColorEnabled")
+    colorToggle.tooltip = "Tints the normal and uninterruptible fill. Keeps the interrupted flash, shield, kick-ready indicator and important-cast effects. Blizzard artwork is tinted rather than replaced."
+    _, h = W:DualRow(parent, y, colorToggle,
+        CastColor("Cast fill color", "castColor", "castColorEnabled")); y = y - h
+    _, h = W:DualRow(parent, y, {
+        type = "dropdown", text = "Cast-bar texture", values = TEXTURES, order = TEXTURE_ORDER,
+        disabled = CastOff, disabledTooltip = "Enable Override cast bar first.",
+        tooltip = "Use EUI texture leaves the current texture unchanged. Flat and Blizzard apply to EUI and Classic styles; stock Blizzard-style cast artwork retains its atlas.",
+        getValue = function() return GetRule().style.castTexture or "eui" end,
+        setValue = function(value) GetRule().style.castTexture = value; Changed() end,
+    }, nil); y = y - h
+    _, h = W:DualRow(parent, y, CastToggle("Custom cast opacity", "castOpacityEnabled"), {
+        type = "slider", text = "Cast opacity (%)", min = 0, max = 100, step = 5,
+        disabled = function() return CastOff() or GetRule().style.castOpacityEnabled ~= true end,
+        disabledTooltip = "Enable Custom cast opacity first.",
+        tooltip = "Fades the cast bar and its child elements. This also works when EUI lifts casts in front of nameplates.",
+        getValue = function() return GetRule().style.castOpacity or defaults.castOpacity end,
+        setValue = function(value) GetRule().style.castOpacity = value; Changed() end,
+    }); y = y - h
+    _, h = W:DualRow(parent, y, CastToggle("Additional cast border", "castBorderEnabled"),
+        CastColor("Cast border color", "castBorderColor", "castBorderEnabled")); y = y - h
+    _, h = W:DualRow(parent, y, {
+        type = "slider", text = "Cast border size", min = 1, max = 8, step = 1,
+        disabled = function() return CastOff() or GetRule().style.castBorderEnabled ~= true end,
+        disabledTooltip = "Enable Additional cast border first.",
+        tooltip = "Adds an outline outside the cast bar without replacing EUI's border or icon separator.",
+        getValue = function() return GetRule().style.castBorderSize or defaults.castBorderSize end,
+        setValue = function(value) GetRule().style.castBorderSize = value; Changed() end,
+    }, nil); y = y - h
 
     return math.abs(y)
 end

@@ -2,8 +2,9 @@
 unpack = unpack or table.unpack
 local frames, timers = {}, {}
 local function Noop() end
-function CreateFrame()
-    local frame = { events = {}, scripts = {}, scale = 1, alpha = 1 }
+function CreateFrame(kind, _, parentFrame)
+    local frame = { events = {}, scripts = {}, scale = 1, alpha = 1, kind = kind, parent = parentFrame,
+        vertexColor = { 1, 1, 1, 1 } }
     function frame:RegisterEvent(event) self.events[event] = true end
     function frame:UnregisterEvent(event) self.events[event] = nil end
     function frame:SetScript(event, callback) self.scripts[event] = callback end
@@ -13,11 +14,22 @@ function CreateFrame()
     function frame:SetAlpha(value) self.alpha = value end
     function frame:GetFrameStrata() return "MEDIUM" end
     function frame:GetFrameLevel() return 10 end
+    function frame:GetWidth() return self.width or 800 end
+    function frame:SetSize(width, height) self.width, self.height = width, height end
     for _, method in ipairs({ "SetAllPoints", "SetFrameStrata", "SetFrameLevel", "Hide", "Show",
         "ClearAllPoints", "SetPoint", "SetHeight", "SetWidth", "SetColorTexture" }) do
         frame[method] = Noop
     end
-    function frame:CreateTexture() return CreateFrame() end
+    function frame:CreateTexture() return CreateFrame("Texture", nil, self) end
+    function frame:SetPoint(...) self.point = { ... } end
+    function frame:GetNumPoints() return self.point and 1 or 0 end
+    function frame:GetPoint() return unpack(self.point) end
+    function frame:SetTexture(path) self.texture = path end
+    function frame:GetTexture() return self.texture end
+    function frame:GetVertexColor() return unpack(self.vertexColor) end
+    function frame:SetVertexColor(r, g, b, a) self.vertexColor = { r, g, b, a or 1 } end
+    function frame:Show() self.shown = true end
+    function frame:Hide() self.shown = false end
     frames[#frames + 1] = frame
     return frame
 end
@@ -73,7 +85,26 @@ function plate:ApplyScale()
     self:SetScale(1)
 end
 function plate:ClearUnit() self.unit = nil end
+function plate:UpdateHealthColor() end -- EUI's cached-color path performs no setter call.
+plate.cast = CreateFrame("StatusBar", nil, plate)
+function plate.cast:GetStatusBarTexture() return self.fill end
+function plate.cast:SetStatusBarTexture(path)
+    self.fill = self:CreateTexture()
+    self.fill:SetTexture(path)
+end
+plate.cast:SetStatusBarTexture("cast-base")
+plate.cast:GetStatusBarTexture():SetVertexColor(0.2, 0.3, 0.4, 1)
+plate.castBarOverlay = plate.cast:CreateTexture()
+plate.castBarOverlay:SetTexture("overlay-base")
+plate.castBarOverlay:SetVertexColor(0.5, 0.5, 0.5, 1)
+plate.castBarOverlay:SetAlpha(0.25)
+plate.castSpark = plate.cast:CreateTexture()
+plate.castSpark:SetPoint("CENTER", plate.cast:GetStatusBarTexture(), "RIGHT", 0, 0)
 EllesmereNameplates_NS = { plates = { nameplate1 = plate }, friendlyPlates = {} }
+function EllesmereNameplates_NS.ApplyCastBarTexture(p)
+    p.cast:SetStatusBarTexture("new-engine-texture")
+    p.castBarOverlay:SetTexture("new-engine-overlay")
+end
 
 local function Near(actual, expected, label)
     assert(math.abs(actual - expected) < 0.00001,
@@ -87,6 +118,7 @@ local function Settings(name, scale, r)
 end
 local namespace = {}
 assert(loadfile("EllesmereUINameplateStyles/EllesmereUINameplateStyles.lua"))("EllesmereUINameplateStyles", namespace)
+assert(loadfile("EllesmereUINameplateStyles/EllesmereUINameplateStyles_CastStyles.lua"))("EllesmereUINameplateStyles", namespace)
 assert(EllesmereUINameplateStylesDB == nil, "SavedVariables initialized before ADDON_LOADED")
 local api = EllesmereUINameplateStyles
 
@@ -118,15 +150,28 @@ api.Refresh(); Flush()
 Near(plate.scale, 1.38, "refresh preserves engine scale")
 
 local rows, spec = {}, nil
+local positionHeader
+local parent = CreateFrame()
 local W = {}
-function W:SectionHeader() return {}, 40 end
-function W:Button(_, text, _, click) rows[text] = { click = click }; return {}, 50 end
+function W:SectionHeader(_, text)
+    if text:find("^RULE ORDER") then positionHeader = text end
+    return {}, 40
+end
+function W:Button(_, text, y, click)
+    local row, button = CreateFrame(), CreateFrame()
+    function row:GetChildren() return button end
+    rows[text] = { click = click, row = row, button = button, y = y }
+    if EllesmereUI.IsSearchPrebuild() then return {}, 50 end
+    return row, 50
+end
 function W:Toggle(_, text, _, get, set) rows[text] = { get = get, set = set }; return {}, 50 end
 function W:Slider(_, text, _, _, _, _, get, set) rows[text] = { get = get, set = set }; return {}, 50 end
 function W:Dropdown(_, text, _, values, get, set) rows[text] = { get = get, set = set, values = values }; return {}, 50 end
-function W:DualRow(_, _, config)
-    assert(config.type == "input")
-    rows[config.text] = { get = config.getValue, set = config.setValue }
+function W:DualRow(_, _, config, right)
+    for _, cfg in ipairs({ config, right }) do
+        if cfg.type == "colorpicker" then assert(type(cfg.getValue()) == "number") end
+        rows[cfg.text] = { get = cfg.getValue, set = cfg.setValue, disabled = cfg.disabled }
+    end
     return {}, 50
 end
 function W:ColorPicker(_, text, _, get, set)
@@ -136,21 +181,37 @@ function W:ColorPicker(_, text, _, get, set)
 end
 EllesmereUI = {
     Widgets = W,
+    CONTENT_PAD = 20,
+    PanelPP = {
+        Size = function(frame, width, height) frame:SetSize(width, height) end,
+        Point = function(frame, ...) frame:SetPoint(...) end,
+    },
+    IsSearchPrebuild = function() return false end,
     RegisterPlugin = function(_, value) spec = value; return true end,
     IsPluginRegistered = function() return false end,
     GetPluginModuleKey = function() return "plugin:test:Styles" end,
     InvalidateModulePageCache = Noop,
-    RefreshPage = function() spec.modules[1].buildPage("Rules", {}, 0) end,
+    RefreshPage = function() spec.modules[1].buildPage("Rules", parent, 0) end,
 }
 assert(loadfile("EllesmereUINameplateStyles/EllesmereUINameplateStyles_Options.lua"))()
 Fire("PLAYER_LOGIN")
-spec.modules[1].buildPage("Rules", {}, 0)
+spec.modules[1].buildPage("Rules", parent, 0)
+assert(positionHeader == "RULE ORDER - POSITION 1 OF 1")
+local actions = { "Add Rule", "Delete Rule", "Move Rule Up", "Move Rule Down" }
+for index, text in ipairs(actions) do
+    local action = rows[text]
+    assert(action.y == rows[actions[1]].y, "action buttons must share a row")
+    Near(action.row.width, 190, "action column width")
+    Near(action.row.point[4], 20 + (index - 1) * 190, "left-to-right button order")
+    Near(action.button.width, 178, "button fits its column")
+end
 rows["Nameplate size (%)"].set(120)
 rows["Health-bar color"].set(0.9, 0.8, 0.7)
 Flush()
 Near(plate.scale, 1.44, "options slider changes live scale")
 Near(plate.health.color[1], 0.9, "options picker changes live color")
 rows["Add Rule"].click(); Flush()
+assert(positionHeader == "RULE ORDER - POSITION 1 OF 2")
 assert(namespace.FindRule("nameplate1") == api.GetRules()[1], "new rule not selected by renderer")
 Near(plate.scale, 1.2, "new rule scale")
 Near(plate.health.color[1], 1, "new rule color")
@@ -166,11 +227,21 @@ rows["Rule name"].set(" \t\n ")
 assert(renamed.name == "My Target Rule", "blank name replaced existing name")
 local oldNameField = rows["Rule name"]
 rows["Edit rule"].set("2")
+assert(positionHeader == "RULE ORDER - POSITION 2 OF 2")
 oldNameField.set("Target Rule")
 assert(renamed.name == "Target Rule" and api.GetRules()[2].name == "Replacement rule",
     "focus-loss commit renamed the wrong rule")
 rows["Edit rule"].set("1")
 assert(rows["Rule name"].get() == "Target Rule", "rename lost after page rebuild")
+rows["Move Rule Down"].click(); Flush()
+assert(positionHeader == "RULE ORDER - POSITION 2 OF 2" and api.GetRules()[2] == renamed)
+rows["Move Rule Up"].click(); Flush()
+assert(positionHeader == "RULE ORDER - POSITION 1 OF 2" and api.GetRules()[1] == renamed)
+
+EllesmereUI.IsSearchPrebuild = function() return true end
+spec.modules[1].buildPage("Rules", {}, 0)
+EllesmereUI.IsSearchPrebuild = function() return false end
+spec.modules[1].buildPage("Rules", parent, 0)
 
 rows["Nameplate size (%)"].set(115); Flush()
 plate:ClearUnit()
@@ -191,4 +262,150 @@ Near(plate.scale, 1.3, "cached options use current settings")
 Near(plate.health.color[1], 0.4, "cached color picker uses current settings")
 assert(namespace.db == EllesmereUINameplateStylesDB)
 
-print("PASS: delayed SavedVariables, table replacement, live options, new rules, renaming, repeated scaling, recycling, disable")
+rows["Add Rule"].click(); Flush()
+rows["Delete Rule"].click(); Flush()
+assert(positionHeader == "RULE ORDER - POSITION 1 OF 1", "delete must update position and total")
+
+-- Cast styling is opt-in, including on existing saved rules.
+assert(rows["Override cast bar"].get() == false)
+assert(rows["Custom cast color"].disabled())
+assert(rows["Cast fill color"].disabled())
+assert(plate.cast:GetStatusBarTexture():GetTexture() == "cast-base")
+Near(plate.cast:GetStatusBarTexture().vertexColor[1], 0.2, "default cast color untouched")
+rows["Override cast bar"].set(true); Flush()
+assert(not rows["Custom cast color"].disabled())
+assert(rows["Cast fill color"].disabled())
+rows["Custom cast color"].set(true)
+rows["Cast fill color"].set(0.9, 0.2, 0.1)
+rows["Custom cast opacity"].set(true)
+rows["Cast opacity (%)"].set(60)
+rows["Additional cast border"].set(true)
+rows["Cast border size"].set(3)
+rows["Cast border color"].set(0.1, 0.9, 0.3)
+Flush()
+Near(plate.cast:GetStatusBarTexture().vertexColor[1], 0.9, "custom cast fill")
+Near(plate.castBarOverlay.vertexColor[1], 0.9, "custom uninterruptible fill")
+Near(plate.castBarOverlay.alpha, 0.25, "engine interruptibility alpha preserved")
+Near(plate.cast.alpha, 0.6, "cast opacity")
+local castBorder
+for _, frame in ipairs(frames) do
+    if frame.parent == plate.cast and frame.kind == "Frame" then castBorder = frame end
+end
+assert(castBorder and castBorder.shown, "cast border must belong to cast, including lifted casts")
+
+-- Repaints remain styled immediately, but the latest engine paint is restored on disable.
+plate.cast:GetStatusBarTexture():SetVertexColor(0.1, 0.4, 0.6, 1)
+plate.castBarOverlay:SetVertexColor(0.3, 0.3, 0.3, 1)
+plate.cast:SetAlpha(0.8)
+Near(plate.cast:GetStatusBarTexture().vertexColor[1], 0.9, "color survives cooldown repaint")
+Near(plate.cast.alpha, 0.48, "opacity multiplies fresh base once")
+plate._interrupted = true
+plate.cast:GetStatusBarTexture():SetVertexColor(1, 0, 0, 1)
+Near(plate.cast:GetStatusBarTexture().vertexColor[1], 1, "interrupt flash wins")
+api.Refresh(); Flush()
+Near(plate.cast:GetStatusBarTexture().vertexColor[2], 0, "refresh preserves interrupt flash")
+plate._interrupted = nil
+plate.cast:GetStatusBarTexture():SetVertexColor(0.1, 0.4, 0.6, 1)
+Near(plate.cast:GetStatusBarTexture().vertexColor[1], 0.9, "next cast gets override")
+rows["Custom cast color"].set(false); Flush()
+Near(plate.cast:GetStatusBarTexture().vertexColor[1], 0.1, "color toggle restores latest engine paint")
+Near(plate.castBarOverlay.vertexColor[1], 0.3, "color toggle restores overlay paint")
+rows["Custom cast color"].set(true); Flush()
+
+rows["Cast-bar texture"].set("flat"); Flush()
+assert(plate.cast:GetStatusBarTexture():GetTexture() == "Interface\\Buttons\\WHITE8x8")
+assert(plate.castBarOverlay:GetTexture() == "Interface\\Buttons\\WHITE8x8")
+assert(plate.castSpark.point[2] == plate.cast:GetStatusBarTexture(), "spark must follow replacement fill")
+local unchangedFill = plate.cast:GetStatusBarTexture()
+api.Refresh(); Flush()
+assert(plate.cast:GetStatusBarTexture() == unchangedFill, "ordinary refresh must not replace texture")
+EllesmereNameplates_NS.ApplyCastBarTexture(plate)
+assert(plate.cast:GetStatusBarTexture():GetTexture() == "Interface\\Buttons\\WHITE8x8", "texture survives engine refresh")
+assert(plate.castSpark.point[2] == plate.cast:GetStatusBarTexture(), "spark follows engine texture refresh")
+rows["Override cast bar"].set(false); Flush()
+assert(plate.cast:GetStatusBarTexture():GetTexture() == "new-engine-texture")
+assert(plate.castSpark.point[2] == plate.cast:GetStatusBarTexture(), "spark follows restored texture")
+assert(plate.castBarOverlay:GetTexture() == "new-engine-overlay")
+Near(plate.cast.alpha, 0.8, "disable restores latest engine opacity")
+Near(plate.castBarOverlay.vertexColor[1], 0.3, "disable restores latest overlay color")
+assert(not castBorder.shown)
+
+-- Atlas-based stock artwork is never replaced by a texture override.
+plate._blizzCastArt = true
+rows["Override cast bar"].set(true); Flush()
+assert(plate.cast:GetStatusBarTexture():GetTexture() == "new-engine-texture")
+plate._blizzCastArt = nil
+api.Refresh(); Flush()
+assert(plate.cast:GetStatusBarTexture():GetTexture() == "Interface\\Buttons\\WHITE8x8")
+plate:ClearUnit()
+assert(plate.cast:GetStatusBarTexture():GetTexture() == "new-engine-texture")
+assert(not castBorder.shown, "pool release hides cast border")
+plate.unit = "nameplate1"
+api.Refresh(); Flush()
+assert(castBorder.shown)
+api.GetRules()[1].conditions.target = "no"
+api.Refresh(); Flush()
+assert(not castBorder.shown, "unmatching restores cast")
+assert(plate.cast:GetStatusBarTexture():GetTexture() == "new-engine-texture")
+api.GetRules()[1].conditions.target = "yes"
+api.Refresh(); Flush()
+api.GetSettings().enabled = false
+api.Refresh(); Flush()
+assert(not castBorder.shown and plate.cast:GetStatusBarTexture():GetTexture() == "new-engine-texture")
+namespace.ApplyCastStyle({ health = plate.health }, { castEnabled = true }) -- friendly plate without cast
+
+-- Health controls preserve saved behavior, including the old border-size=0 switch.
+api.GetSettings().enabled = true
+api.Refresh(); Flush()
+assert(rows["Override health bar"].get())
+assert(rows["Custom health color"].get())
+assert(not rows["Additional health border"].get())
+assert(rows["Health border size"].disabled())
+rows["Additional health border"].set(true); Flush()
+assert(api.GetRules()[1].style.borderSize == 2, "enabling legacy zero-size border needs a visible size")
+rows["Health border size"].set(4)
+rows["Health border color"].set(0.4, 0.7, 0.2)
+rows["Health-bar texture"].set("flat")
+Flush()
+local healthBorder
+for _, frame in ipairs(frames) do
+    if frame.parent == plate and frame.kind == "Frame" then healthBorder = frame end
+end
+assert(healthBorder and healthBorder.shown)
+rows["Additional health border"].set(false); Flush()
+assert(not healthBorder.shown and rows["Health border color"].disabled())
+assert(api.GetRules()[1].style.borderSize == 4, "border toggle must preserve size")
+rows["Additional health border"].set(true); Flush()
+assert(healthBorder.shown and api.GetRules()[1].style.borderSize == 4)
+
+-- Observe genuine engine writes, not plugin paint left behind by cached updates.
+plate.health:SetStatusBarColor(0.25, 0.35, 0.45, 0.8)
+plate.health:SetStatusBarTexture("latest-health-engine")
+Flush()
+Near(plate.health.color[1], 0.4, "health override survives engine repaint")
+assert(plate.health.texture == "Interface\\Buttons\\WHITE8x8")
+plate:UpdateHealthColor(); Flush()
+rows["Custom health color"].set(false); Flush()
+Near(plate.health.color[1], 0.25, "color toggle restores engine color after cached repaint")
+Near(plate.health.color[4], 0.8, "color toggle restores engine alpha")
+assert(rows["Health-bar color"].disabled())
+rows["Custom health color"].set(true); Flush()
+rows["Override health bar"].set(false); Flush()
+Near(plate.health.color[1], 0.25, "health master restores color")
+assert(plate.health.texture == "latest-health-engine" and not healthBorder.shown)
+assert(rows["Custom health color"].disabled() and rows["Health-bar texture"].disabled())
+assert(rows["Additional health border"].disabled() and rows["Health border size"].disabled())
+assert(castBorder.shown, "health master must not disable cast overrides")
+Near(plate.scale, 1.3, "health master must not change whole-nameplate scale")
+rows["Override health bar"].set(true); Flush()
+Near(plate.health.color[1], 0.4, "health master restores custom color")
+assert(healthBorder.shown and plate.health.texture == "Interface\\Buttons\\WHITE8x8")
+assert(api.GetRules()[1].style.borderSize == 4)
+rows["Health-bar texture"].set("eui"); Flush()
+assert(plate.health.texture == "latest-health-engine", "Use EUI texture restores latest base")
+
+EllesmereUI.IsSearchPrebuild = function() return true end
+spec.modules[1].buildPage("Rules", {}, 0)
+EllesmereUI.IsSearchPrebuild = function() return false end
+
+print("PASS: settings, rules, search, scaling, health/cast override controls, engine repaints, restoration, recycling")

@@ -10,6 +10,23 @@ Conditions currently include player/NPC/pet/creature, friendly/enemy/neutral, no
 
 Effects include health-bar color, whole-nameplate scale and opacity, an additional colored health-bar border, and a choice of EUI/flat/Blizzard health texture.
 
+## Health-bar overrides
+
+The Health Bar section uses the same layout as Cast Bar: a master **Override health bar** switch, **Custom health color** beside its color picker, a texture selector, and **Additional health border** beside its color picker with thickness below. Controls are dimmed when their override is off.
+
+The border toggle preserves its saved color and thickness. Existing rules keep their previous appearance; a saved border size of zero remains off until enabled. Turning the health master off restores EUI color/texture and hides only the plugin's additional border. Whole-nameplate size/opacity and cast-bar overrides remain independent.
+
+## Cast-bar overrides
+
+Appearance is grouped into **Nameplate**, **Health Bar**, and **Cast Bar**. In the Cast Bar section, enable **Override cast bar** for the selected rule. Existing rules leave this off. Inactive controls remain visible but dimmed, with tooltips explaining what to enable.
+
+- **Custom cast color** tints the fill and uninterruptible overlay; the interrupted flash and other EUI cast indicators are preserved.
+- **Cast-bar texture** offers EUI, flat, and Blizzard status-bar textures. Stock Blizzard-style cast artwork retains its atlas; this texture override applies to EUI and Classic styles.
+- **Custom cast opacity** fades the cast subtree, including when casts are lifted in front of nameplates.
+- **Additional cast border** adds its own outline with color and thickness controls without replacing the EUI border.
+
+Turning an override off, disabling the plugin, or leaving a matching rule restores the engine-authored cast settings. Rules still use first-match priority; a higher rule can take precedence over a cast-specific rule. Friendly plates currently have no EUI cast bar, so these settings do not add one.
+
 ## Install
 
 Copy the `EllesmereUINameplateStyles` folder into `Interface/AddOns`. It requires both `EllesmereUI` and `EllesmereUINameplates` to be enabled. Open the EUI options panel and select **Nameplate Styles > Rule Styling**.
@@ -31,4 +48,4 @@ Run `/npstyles` with a visible enemy target to report matching rules and reapply
 
 Scale is a multiplier on EUI's base scale, including its target/cast animation. The plugin does not modify EUI's animation values.
 
-From the repository root, run `lua EllesmereUINameplateStyles/tests/runtime.lua` (or `npx --yes --package fengari-node-cli fengari EllesmereUINameplateStyles/tests/runtime.lua`). The mocked runtime tests cover delayed SavedVariables loading, table replacement, option callbacks, new rules, scale updates, frame recycling, and disabling styles. They do not replace in-game testing on Forever and Retail.
+From the repository root, run `lua EllesmereUINameplateStyles/tests/runtime.lua` (or `npx --yes --package fengari-node-cli fengari EllesmereUINameplateStyles/tests/runtime.lua`). The mocked runtime tests cover delayed SavedVariables loading, table replacement, option callbacks, new rules, scale updates, frame recycling, and disabling styles. Cast tests cover engine repaints, texture replacement and spark anchors, interrupt flashes, opacity, borders, and restoration. They do not replace in-game testing on Forever and Retail.

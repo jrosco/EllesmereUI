@@ -101,7 +101,8 @@ local function ColorOf(statusBar)
     if not statusBar or not statusBar.GetStatusBarColor then return nil end
     local r, g, b, a = statusBar:GetStatusBarColor()
     if type(r) ~= "number" or type(g) ~= "number" or type(b) ~= "number" then return nil end
-    return { r = r, g = g, b = b, a = a or 1 }
+    if type(a) == "nil" then a = 1 end
+    return { r = r, g = g, b = b, a = a }
 end
 
 local function TextureOf(statusBar)
@@ -131,7 +132,7 @@ end
 
 local function ApplyBorder(plate, state, style)
     local size = math.max(0, math.min(8, tonumber(style.borderSize) or 0))
-    if size == 0 then
+    if style.healthEnabled == false or style.borderEnabled == false or size == 0 then
         if state.border then state.border:Hide() end
         return
     end
@@ -295,10 +296,12 @@ local function SetScaleFactor(plate, state, factor)
 end
 
 local function ResetStyle(plate, state)
+    if addon.ApplyCastStyle then addon.ApplyCastStyle(plate, nil) end
     if state.border then state.border:Hide() end
+    state.writingHealth = true
     if state.hadColor and state.baseColor and plate.health then
         local c = state.baseColor
-        plate.health:SetStatusBarColor(c.r, c.g, c.b, c.a or 1)
+        plate.health:SetStatusBarColor(c.r, c.g, c.b, c.a)
     end
     if state.hadTexture and state.baseTexture and plate.health then
         plate.health:SetStatusBarTexture(state.baseTexture)
@@ -306,6 +309,7 @@ local function ResetStyle(plate, state)
             NP.NP_LayoutAbsorbBars(plate, plate.health, plate._absEdge)
         end
     end
+    state.writingHealth = nil
     if state.scaleFactor and state.scaleFactor ~= 1 and plate.SetScale then
         SetScaleFactor(plate, state, 1)
     end
@@ -331,25 +335,24 @@ local function ApplyStyle(plate)
         elseif oldAlphaFactor > 0 then
             state.baseAlpha = plate:GetAlpha() / oldAlphaFactor
         end
-        state.baseColor = ColorOf(plate.health)
-        state.baseTexture = TextureOf(plate.health)
     end
     local rule = FindRule(unit)
     rule = rule and rule or nil
     if not rule then ResetStyle(plate, state); return end
     local style = rule.style or {}
     state.rule = rule
-    if style.healthColorEnabled and style.healthColor then
+    state.writingHealth = true
+    if style.healthEnabled ~= false and style.healthColorEnabled and style.healthColor then
         local c = style.healthColor
         plate.health:SetStatusBarColor(c.r or 1, c.g or 1, c.b or 1, 1)
         state.hadColor = true
     elseif state.hadColor and state.baseColor then
         local c = state.baseColor
-        plate.health:SetStatusBarColor(c.r, c.g, c.b, c.a or 1)
+        plate.health:SetStatusBarColor(c.r, c.g, c.b, c.a)
         state.hadColor = nil
     end
     local textureChanged = false
-    local texture = style.texture
+    local texture = style.healthEnabled ~= false and style.texture or "eui"
     if texture == "flat" then
         plate.health:SetStatusBarTexture("Interface\\Buttons\\WHITE8x8"); state.hadTexture = true; textureChanged = true
     elseif texture == "blizzard" then
@@ -361,12 +364,14 @@ local function ApplyStyle(plate)
     if textureChanged and plate.absorb and NP and NP.NP_LayoutAbsorbBars then
         NP.NP_LayoutAbsorbBars(plate, plate.health, plate._absEdge)
     end
+    state.writingHealth = nil
     ApplyBorder(plate, state, style)
     local scale = math.max(50, math.min(200, tonumber(style.scale) or 100)) / 100
     local opacity = math.max(0, math.min(100, tonumber(style.opacity) or 100)) / 100
     SetScaleFactor(plate, state, scale)
     state.alphaFactor = opacity
     if plate.SetAlpha then plate:SetAlpha((state.baseAlpha or 1) * opacity) end
+    if addon.ApplyCastStyle then addon.ApplyCastStyle(plate, style) end
 end
 
 local InstallHooks
@@ -400,6 +405,23 @@ local function InstallPlateHooks(plate)
     if not plate or hooked[plate] then return end
     hooked[plate] = true
     local state = GetState(plate)
+    state.baseColor = ColorOf(plate.health)
+    state.baseTexture = TextureOf(plate.health)
+    if plate.health then
+        -- Capture only actual engine writes. A cached UpdateHealthColor pass may
+        -- leave our custom paint in place, which must never become the base.
+        hooksecurefunc(plate.health, "SetStatusBarColor", function(_, r, g, b, a)
+            if state.writingHealth then return end
+            if type(a) == "nil" then a = 1 end
+            state.baseColor = { r = r, g = g, b = b, a = a }
+            QueueRefresh()
+        end)
+        hooksecurefunc(plate.health, "SetStatusBarTexture", function(health)
+            if state.writingHealth then return end
+            state.baseTexture = TextureOf(health)
+            QueueRefresh()
+        end)
+    end
     -- Keep EUI's animation values unmodified; multiply only the rendered scale.
     hooksecurefunc(plate, "SetScale", function(self, scale)
         if state.writingScale then return end
@@ -414,18 +436,8 @@ local function InstallPlateHooks(plate)
     end
     local methods = { "SetUnit", "ApplyAppearance", "ApplyScale", "UpdateHealthColor", "UpdateCast" }
     for _, method in ipairs(methods) do
-        local methodName = method
-        if type(plate[methodName]) == "function" then
-            hooksecurefunc(plate, methodName, function(self)
-                local state = GetState(self)
-                if methodName == "SetUnit" then
-                    QueueRefresh()
-                elseif methodName == "UpdateHealthColor" or methodName == "ApplyAppearance" then
-                    state.baseColor = ColorOf(self.health) or state.baseColor
-                    state.baseTexture = TextureOf(self.health) or state.baseTexture
-                end
-                QueueRefresh()
-            end)
+        if type(plate[method]) == "function" then
+            hooksecurefunc(plate, method, QueueRefresh)
         end
     end
 end
