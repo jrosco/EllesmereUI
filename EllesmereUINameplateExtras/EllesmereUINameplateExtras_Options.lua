@@ -231,11 +231,6 @@ local function NewRule(index)
     }
 end
 
-local function RuleHeading(title, rule, index)
-    local name = rule and rule.name or ("Rule " .. index)
-    return title .. " (" .. name .. ")"
-end
-
 local function BuildRulesPage(parent, yOffset)
     local W = EllesmereUI.Widgets
     local y = yOffset
@@ -244,13 +239,15 @@ local function BuildRulesPage(parent, yOffset)
     local rule, selected = GetRule()
     local barTextureValues, barTextureOrder = GetBarTextureOptions()
 
-    _, h = W:SectionHeader(parent,
-        RuleHeading(("RULE ORDER - POSITION %d OF %d"):format(selected, #db.rules), rule, selected), y)
+    -- Search stores exact section names on first indexing. Keep them stable;
+    -- the selector and name field below show the current rule's context.
+    _, h = W:SectionHeader(parent, "RULE ORDER", y)
     y = y - h
     local labels, order = {}, {}
     for i, item in ipairs(db.rules) do
         local key = tostring(i)
-        labels[key] = (item.enabled == false and "Off - " or "") .. (item.name or ("Rule " .. i))
+        labels[key] = ("%d of %d - %s%s"):format(i, #db.rules,
+            item.enabled == false and "Off - " or "", item.name or ("Rule " .. i))
         order[#order + 1] = key
     end
     _, h = W:Dropdown(parent, "Edit rule", y, labels,
@@ -276,33 +273,15 @@ local function BuildRulesPage(parent, yOffset)
             Rebuild()
         end,
     }, nil); y = y - h
-    local actionColumn, actionHeight = 0, 0
-    local function ActionButton(text, onClick)
-        local row, height = W:Button(parent, text, y, onClick)
-        if not EllesmereUI.IsSearchPrebuild() then
-            local PP = EllesmereUI.PanelPP
-            local pad = EllesmereUI.CONTENT_PAD
-            local width = (parent:GetWidth() - pad * 2) / 5
-            row:ClearAllPoints()
-            PP.Size(row, width, height)
-            PP.Point(row, "TOPLEFT", parent, "TOPLEFT", pad + actionColumn * width, y)
-            local button = row:GetChildren()
-            button:ClearAllPoints()
-            PP.Size(button, width - 12, 32)
-            PP.Point(button, "CENTER", row, "CENTER", 0, 0)
-        end
-        actionColumn = actionColumn + 1
-        actionHeight = math.max(actionHeight, height)
-    end
-    ActionButton("Add Rule", function()
+    -- Supported composites stay together when inline search reflows tagged rows.
+    _, h = W:WideTripleButton(parent, "Add Rule", "Copy Rule", "Delete Rule", y, function()
         local current = DB()
         if #current.rules >= MAX_RULES then return end
         table.insert(current.rules, 1, NewRule(#current.rules + 1))
         current.selectedRule = 1
         Rebuild()
         Changed()
-    end)
-    ActionButton("Copy Rule", function()
+    end, function()
         local current = DB()
         if #current.rules >= MAX_RULES then return end
         local index = current.selectedRule
@@ -323,8 +302,7 @@ local function BuildRulesPage(parent, yOffset)
         current.selectedRule = index + 1
         Rebuild()
         Changed()
-    end)
-    ActionButton("Delete Rule", function()
+    end, function()
         local current = DB()
         if #current.rules <= 1 then return end
         local rule = current.rules[current.selectedRule]
@@ -354,8 +332,9 @@ local function BuildRulesPage(parent, yOffset)
                 Changed()
             end,
         })
-    end)
-    ActionButton("Move Rule Up", function()
+    end, 205)
+    y = y - h
+    _, h = W:WideDualButton(parent, "Move Rule Up", "Move Rule Down", y, function()
         local current = DB()
         local index = current.selectedRule
         if index <= 1 then return end
@@ -363,8 +342,7 @@ local function BuildRulesPage(parent, yOffset)
         current.selectedRule = index - 1
         Rebuild()
         Changed()
-    end)
-    ActionButton("Move Rule Down", function()
+    end, function()
         local current = DB()
         local index = current.selectedRule
         if index >= #current.rules then return end
@@ -372,10 +350,10 @@ local function BuildRulesPage(parent, yOffset)
         current.selectedRule = index + 1
         Rebuild()
         Changed()
-    end)
-    y = y - actionHeight
+    end, 205)
+    y = y - h
 
-    _, h = W:SectionHeader(parent, RuleHeading("MATCH CONDITIONS", rule, selected), y); y = y - h
+    _, h = W:SectionHeader(parent, "MATCH CONDITIONS", y); y = y - h
     _, h = W:Toggle(parent, "Rule enabled", y,
         function() return GetRule().enabled ~= false end,
         function(value) GetRule().enabled = value; Rebuild(); Changed() end)
@@ -455,8 +433,12 @@ local function BuildRulesPage(parent, yOffset)
         local row, rowHeight = W:DualRow(parent, y,
             { type = "spacer", text = left.text, tooltip = left.tooltip },
             right and { type = "spacer", text = right.text, tooltip = right.tooltip } or nil)
-        BuildConditionMultiDropdown(row._leftRegion, left)
-        if right then BuildConditionMultiDropdown(row._rightRegion, right) end
+        -- The search factory returns absorbers, whose regions are not native
+        -- UI parents. DualRow above still indexes both labels and tooltips.
+        if not EllesmereUI.IsSearchPrebuild() then
+            BuildConditionMultiDropdown(row._leftRegion, left)
+            if right then BuildConditionMultiDropdown(row._rightRegion, right) end
+        end
         y = y - rowHeight
     end
     _, h = W:Toggle(parent, "Quest Objective", y,
@@ -467,7 +449,7 @@ local function BuildRulesPage(parent, yOffset)
         end,
         "When on, matches only units shown as incomplete objectives in your own quest log. Uses EUI's quest detector and follows its Show In Instances setting. When off, quest status does not restrict this rule.")
     y = y - h
-    _, h = W:SectionHeader(parent, RuleHeading("APPEARANCE - NAMEPLATE", rule, selected), y); y = y - h
+    _, h = W:SectionHeader(parent, "APPEARANCE - NAMEPLATE", y); y = y - h
     _, h = W:Slider(parent, "Nameplate size (%)", y, 50, 200, 5,
         function() return GetRule().style.scale or 100 end,
         function(value) GetRule().style.scale = value; Changed() end,
@@ -478,7 +460,7 @@ local function BuildRulesPage(parent, yOffset)
         function(value) GetRule().style.opacity = value; Changed() end,
         "Multiplies the nameplate's current EUI opacity by this value.")
     y = y - h
-    _, h = W:SectionHeader(parent, RuleHeading("APPEARANCE - HEALTH BAR", rule, selected), y); y = y - h
+    _, h = W:SectionHeader(parent, "APPEARANCE - HEALTH BAR", y); y = y - h
     _, h = W:Toggle(parent, "Override health bar", y,
         function() return GetRule().style.healthEnabled ~= false end,
         function(value) GetRule().style.healthEnabled = value; Changed(); Rebuild() end,
@@ -541,7 +523,7 @@ local function BuildRulesPage(parent, yOffset)
         setValue = function(value) GetRule().style.borderSize = value; Changed() end,
     }, nil); y = y - h
 
-    _, h = W:SectionHeader(parent, RuleHeading("APPEARANCE - CAST BAR", rule, selected), y); y = y - h
+    _, h = W:SectionHeader(parent, "APPEARANCE - CAST BAR", y); y = y - h
     _, h = W:Toggle(parent, "Override cast bar", y,
         function() return GetRule().style.castEnabled == true end,
         function(value) GetRule().style.castEnabled = value; Changed(); Rebuild() end,

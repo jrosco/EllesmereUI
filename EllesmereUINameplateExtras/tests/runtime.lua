@@ -7,7 +7,8 @@ local questObjective = false
 local playerName = "TestCharacter"
 local activeCast
 function CreateFrame(kind, _, parentFrame)
-    local frame = { events = {}, scripts = {}, scale = 1, alpha = 1, kind = kind, parent = parentFrame,
+    assert(parentFrame == nil or rawget(parentFrame, "nativeFrame"), "native UI parent required")
+    local frame = { nativeFrame = true, events = {}, scripts = {}, scale = 1, alpha = 1, kind = kind, parent = parentFrame,
         vertexColor = { 1, 1, 1, 1 } }
     function frame:RegisterEvent(event) self.events[event] = true end
     function frame:UnregisterEvent(event) self.events[event] = nil end
@@ -302,14 +303,31 @@ function W:WideButton(_, text, _, click)
     return {}, 62
 end
 function W:WideDualButton(_, first, second, _, onFirst, onSecond, _)
-    rows[first] = { click = onFirst }
-    rows[second] = { click = onSecond }
-    return {}, 60
+    local row = EllesmereUI.IsSearchPrebuild() and {} or CreateFrame()
+    rows[first] = { click = onFirst, row = row }
+    rows[second] = { click = onSecond, row = row }
+    return row, 57
+end
+function W:WideTripleButton(_, first, second, third, _, onFirst, onSecond, onThird, _)
+    local row = EllesmereUI.IsSearchPrebuild() and {} or CreateFrame()
+    rows[first] = { click = onFirst, row = row }
+    rows[second] = { click = onSecond, row = row }
+    rows[third] = { click = onThird, row = row }
+    return row, 57
 end
 function W:Toggle(_, text, _, get, set) rows[text] = { get = get, set = set }; return {}, 50 end
 function W:Slider(_, text, _, _, _, _, get, set) rows[text] = { get = get, set = set }; return {}, 50 end
 function W:Dropdown(_, text, _, values, get, set) rows[text] = { get = get, set = set, values = values }; return {}, 50 end
 function W:DualRow(_, _, config, right)
+    -- Search DualRow returns a frameless absorber; even its regions are placeholders.
+    if EllesmereUI.IsSearchPrebuild() then
+        local meta
+        meta = { __index = function(_, key)
+            if type(key) ~= "number" then return setmetatable({}, meta) end
+        end, __call = function() return setmetatable({}, meta) end,
+            __add = function() return 100 end }
+        return setmetatable({}, meta), 40
+    end
     if config.type == "spacer" then
         local row = CreateFrame()
         row._leftRegion = CreateFrame()
@@ -457,25 +475,24 @@ assert(api.GetRules()[1].name == exportedRuleName, "legacy EUI import fallback f
 EllesmereUI.ShowImportStringPopup = scrollImportPopup
 assert(rows["Health-bar texture"].values.melli == "Melli")
 assert(rows["Cast-bar texture"].values["sm:Test Texture"] == "Test Texture")
-local function HasHeader(prefix, suffix)
-    for _, text in ipairs(sectionHeaders) do
-        if text:find(prefix, 1, true) == 1 and text:sub(-#suffix) == suffix then return true end
+local function HasHeader(text)
+    for _, header in ipairs(sectionHeaders) do
+        if header == text then return true end
     end
     return false
 end
-assert(HasHeader("RULE ORDER - POSITION 1 OF 1", "(Shared Default)"), table.concat(sectionHeaders, " | "))
-assert(HasHeader("MATCH CONDITIONS", "(Shared Default)"))
-assert(HasHeader("APPEARANCE - NAMEPLATE", "(Shared Default)"))
-assert(HasHeader("APPEARANCE - HEALTH BAR", "(Shared Default)"))
-assert(HasHeader("APPEARANCE - CAST BAR", "(Shared Default)"))
+assert(HasHeader("RULE ORDER"), table.concat(sectionHeaders, " | "))
+assert(rows["Edit rule"].values["1"] == "1 of 1 - Shared Default")
+assert(HasHeader("MATCH CONDITIONS"))
+assert(HasHeader("APPEARANCE - NAMEPLATE"))
+assert(HasHeader("APPEARANCE - HEALTH BAR"))
+assert(HasHeader("APPEARANCE - CAST BAR"))
 local actions = { "Add Rule", "Copy Rule", "Delete Rule", "Move Rule Up", "Move Rule Down" }
 for index, text in ipairs(actions) do
     local action = rows[text]
-    assert(action.y == rows[actions[1]].y, "action buttons must share a row")
-    Near(action.row.width, 152, "action column width")
-    Near(action.row.point[4], 20 + (index - 1) * 152, "left-to-right button order")
-    Near(action.button.width, 140, "button fits its column")
+    assert(action.row == rows[actions[index <= 3 and 1 or 4]].row, "action composite grouping changed")
 end
+assert(rows["Add Rule"].row ~= rows["Move Rule Up"].row, "management and ordering need separate rows")
 rows["Nameplate size (%)"].set(120)
 rows["Health-bar color"].set(0.9, 0.8, 0.7)
 Flush()
@@ -552,7 +569,7 @@ activeCast = nil
 assert(namespace.FindRule("nameplate1") == api.GetRules()[1], "empty school selection should mean Any")
 
 rows["Add Rule"].click(); Flush()
-assert(HasHeader("RULE ORDER - POSITION 1 OF 2", "(Custom Rule 2)"))
+assert(rows["Edit rule"].values["1"] == "1 of 2 - Custom Rule 2")
 assert(namespace.FindRule("nameplate1") == api.GetRules()[1], "new rule not selected by renderer")
 Near(plate.scale, 1.2, "new rule scale")
 Near(plate.health.color[1], 1, "new rule color")
@@ -561,8 +578,8 @@ local renamed = api.GetRules()[1]
 local style, conditions = renamed.style, renamed.conditions
 rows["Rule name"].set("  My Target Rule  ")
 assert(renamed.name == "My Target Rule", "rename must trim and save")
-assert(rows["Edit rule"].values["1"] == "My Target Rule", "dropdown label not updated")
-assert(HasHeader("APPEARANCE - NAMEPLATE", "(My Target Rule)"), "heading did not update after rename")
+assert(rows["Edit rule"].values["1"] == "1 of 2 - My Target Rule", "dropdown label not updated")
+assert(HasHeader("APPEARANCE - NAMEPLATE"), "stable appearance section missing after rename")
 assert(api.GetSettings().selectedRule == 1 and api.GetRules()[1] == renamed, "rename changed order or selection")
 assert(renamed.style == style and renamed.conditions == conditions, "rename changed rule behavior")
 rows["Rule name"].set(" \t\n ")
@@ -579,16 +596,16 @@ assert(copy.conditions.target.yes == renamed.conditions.target.yes
 assert(api.GetSettings().selectedRule == 2 and rows["Rule name"].get() == copy.name,
     "copy was not selected for editing")
 rows["Edit rule"].set("3")
-assert(HasHeader("RULE ORDER - POSITION 3 OF 3", "(Shared Default)"))
+assert(rows["Edit rule"].values["3"] == "3 of 3 - Shared Default")
 oldNameField.set("Target Rule")
 assert(renamed.name == "Target Rule" and api.GetRules()[3].name == "Shared Default",
     "focus-loss commit renamed the wrong rule")
 rows["Edit rule"].set("1")
 assert(rows["Rule name"].get() == "Target Rule", "rename lost after page rebuild")
 rows["Move Rule Down"].click(); Flush()
-assert(HasHeader("RULE ORDER - POSITION 2 OF 3", "(Target Rule)") and api.GetRules()[2] == renamed)
+assert(rows["Edit rule"].values["2"] == "2 of 3 - Target Rule" and api.GetRules()[2] == renamed)
 rows["Move Rule Up"].click(); Flush()
-assert(HasHeader("RULE ORDER - POSITION 1 OF 3", "(Target Rule)") and api.GetRules()[1] == renamed)
+assert(rows["Edit rule"].values["1"] == "1 of 3 - Target Rule" and api.GetRules()[1] == renamed)
 
 EllesmereUI.IsSearchPrebuild = function() return true end
 spec.modules[1].buildPage("Rules", {}, 0)
@@ -631,7 +648,7 @@ assert(deleteConfirm and deleteConfirm.title == "Delete Nameplate Rule?"
     and deleteConfirm.cancelText == "Keep Rule", "rule delete confirmation wasn't shown")
 deleteConfirm.onConfirm()
 Flush()
-assert(HasHeader("RULE ORDER - POSITION 1 OF 1", "(Late replacement)"), "delete must update position and total")
+assert(rows["Edit rule"].values["1"] == "1 of 1 - Late replacement", "delete must update position and total")
 
 -- Cast styling is opt-in, including on existing saved rules.
 assert(rows["Override cast bar"].get() == false)
