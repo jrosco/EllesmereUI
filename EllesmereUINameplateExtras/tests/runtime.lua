@@ -272,7 +272,7 @@ local deflate = {
 function LibStub(name)
     if name == "LibDeflate" then return deflate end
 end
-local exportedPopup, importedPopup, legacyImportPopup
+local exportedPopup, importedPopup, legacyImportPopup, deleteConfirm
 EllesmereUI = {
     Widgets = W,
     ResolveTexturePath = function(textureTable, key, fallback) return textureTable[key] or fallback end,
@@ -297,6 +297,7 @@ EllesmereUI = {
         importedPopup = { title = title, subtitle = subtitle, confirmText = confirmText, onConfirm = callback }
     end,
     ShowInputPopup = function(_, options) legacyImportPopup = options end,
+    ShowConfirmPopup = function(_, options) deleteConfirm = options end,
     PrintError = Noop,
     Print = Noop,
     RegisterPlugin = function(id, value) registeredID = id; spec = value; return true end,
@@ -450,7 +451,13 @@ Near(plate.health.color[1], 0.4, "cached color picker uses current settings")
 assert(namespace.db.profile == EllesmereUINameplateExtrasDB.profiles.Default)
 
 rows["Add Rule"].click(); Flush()
+local countBeforeDelete = #api.GetRules()
 rows["Delete Rule"].click(); Flush()
+assert(#api.GetRules() == countBeforeDelete, "rule was deleted before confirmation")
+assert(deleteConfirm and deleteConfirm.title == "Delete Nameplate Rule?"
+    and deleteConfirm.cancelText == "Keep Rule", "rule delete confirmation wasn't shown")
+deleteConfirm.onConfirm()
+Flush()
 assert(HasHeader("RULE ORDER - POSITION 1 OF 1", "(Late replacement)"), "delete must update position and total")
 
 -- Cast styling is opt-in, including on existing saved rules.

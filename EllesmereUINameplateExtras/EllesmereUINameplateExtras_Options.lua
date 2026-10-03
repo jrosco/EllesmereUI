@@ -327,10 +327,33 @@ local function BuildRulesPage(parent, yOffset)
     ActionButton("Delete Rule", function()
         local current = DB()
         if #current.rules <= 1 then return end
-        table.remove(current.rules, current.selectedRule)
-        current.selectedRule = math.min(current.selectedRule, #current.rules)
-        Rebuild()
-        Changed()
+        local rule = current.rules[current.selectedRule]
+        if not rule then return end
+        if not EllesmereUI.ShowConfirmPopup then
+            EllesmereUI.PrintError("This EUI version does not provide rule-delete confirmation.")
+            return
+        end
+        EllesmereUI:ShowConfirmPopup({
+            title = "Delete Nameplate Rule?",
+            message = ("Delete '%s'? This cannot be undone."):format(rule.name or "Unnamed Rule"),
+            confirmText = "Delete Rule",
+            cancelText = "Keep Rule",
+            onConfirm = function()
+                -- A popup can remain open while the user changes character profiles
+                -- or edits rules. Delete only the rule that opened this dialog.
+                local latest = DB()
+                if latest ~= current or #latest.rules <= 1 then return end
+                local index
+                for i, candidate in ipairs(latest.rules) do
+                    if candidate == rule then index = i; break end
+                end
+                if not index then return end
+                table.remove(latest.rules, index)
+                latest.selectedRule = math.min(index, #latest.rules)
+                Rebuild()
+                Changed()
+            end,
+        })
     end)
     ActionButton("Move Rule Up", function()
         local current = DB()
