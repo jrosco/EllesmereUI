@@ -40,11 +40,11 @@ end
 
 local db
 local function GetSettings()
-    local saved = _G.EllesmereUINameplateStylesDB
+    local saved = _G.EllesmereUINameplateExtrasDB
     if db and db == saved then return db end
     -- SavedVariables may replace the global after this file's main chunk runs.
     -- Both the renderer and options must resolve the same current table.
-    if type(saved) ~= "table" then saved = {}; _G.EllesmereUINameplateStylesDB = saved end
+    if type(saved) ~= "table" then saved = {} end
     if type(saved.rules) ~= "table" or #saved.rules == 0 then saved.rules = Copy(DEFAULT_RULES) end
     for _, rule in ipairs(saved.rules) do
         if type(rule.conditions) ~= "table" then rule.conditions = {} end
@@ -55,6 +55,7 @@ local function GetSettings()
     end
     saved.selectedRule = math.max(1, math.min(tonumber(saved.selectedRule) or 1, #saved.rules))
     db = saved
+    _G.EllesmereUINameplateExtrasDB = saved
     addon.db = db
     return db
 end
@@ -509,7 +510,7 @@ addon.RegisterSpellSchool = function(spellID, school)
     return true
 end
 
-_G.EllesmereUINameplateStyles = {
+local publicAPI = {
     Refresh = function()
         if InstallHooks then InstallHooks() end
         QueueRefresh()
@@ -521,19 +522,21 @@ _G.EllesmereUINameplateStyles = {
     MaxRules = MAX_RULES,
     DefaultRules = DEFAULT_RULES,
 }
+-- Keep the previous global name as an alias for existing rule extensions.
+_G.EllesmereUINameplateExtras = publicAPI
 
-SLASH_NAMEPLATESTYLES1 = "/npstyles"
-SlashCmdList.NAMEPLATESTYLES = function()
+SLASH_NAMEPLATEEXTRAS1 = "/npextras"
+SlashCmdList.NAMEPLATEEXTRAS = function()
     GetSettings()
     local function Text(value)
         if IsSecret(value) then return "<restricted>" end
         return tostring(value)
     end
     local function Report(message)
-        print("Nameplate Styles: " .. message)
+        print("Nameplate Extras: " .. message)
     end
-    Report("diagnostics v2; enabled=" .. Text(db.enabled ~= false)
-        .. "; settings shared with options=" .. Text(db == _G.EllesmereUINameplateStylesDB))
+    Report("diagnostics v3; addon=EllesmereUINameplateExtras; feature=Nameplate Style; enabled=" .. Text(db.enabled ~= false)
+        .. "; settings shared with options=" .. Text(db == _G.EllesmereUINameplateExtrasDB))
     NP = _G.EllesmereNameplates_NS
     if not NP then Report("EUI nameplate namespace missing"); return end
     local targetPlate

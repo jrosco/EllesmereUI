@@ -1,7 +1,7 @@
-local addon = EllesmereUINameplateStyles and EllesmereUINameplateStyles
+local addon = EllesmereUINameplateExtras and EllesmereUINameplateExtras
 if not addon then return end
 
-local PLUGIN_ID = "EllesmereUINameplateStyles"
+local PLUGIN_ID = "EllesmereUINameplateExtras"
 local MAX_RULES = addon.MaxRules or 12
 
 local UNIT_TYPES = { any = "Any unit", player = "Player", npc = "NPC", pet = "Player-controlled pet", creature = "Any creature" }
@@ -60,7 +60,7 @@ local function CopyRule(rule)
 end
 
 local function Rebuild()
-    local key = EllesmereUI.GetPluginModuleKey(PLUGIN_ID, "Styles")
+    local key = EllesmereUI.GetPluginModuleKey(PLUGIN_ID, "NameplateStyle")
     if key then EllesmereUI:InvalidateModulePageCache(key) end
     EllesmereUI:RefreshPage(true)
 end
@@ -86,7 +86,9 @@ local function BuildRulesPage(parent, yOffset)
     local db = DB()
     local rule, selected = GetRule()
 
-    _, h = W:SectionHeader(parent, RuleHeading(("RULE ORDER - POSITION %d OF %d"):format(selected, #db.rules), rule, selected), y); y = y - h
+    _, h = W:SectionHeader(parent,
+        RuleHeading(("RULE ORDER - POSITION %d OF %d"):format(selected, #db.rules), rule, selected), y)
+    y = y - h
     local labels, order = {}, {}
     for i, item in ipairs(db.rules) do
         local key = tostring(i)
@@ -347,7 +349,7 @@ local function BuildAboutPage(parent, yOffset)
     _, h = W:SectionHeader(parent, "DETECTION", y); y = y - h
     _, h = W:SectionHeader(parent, "CONDITIONS AND PRIORITY", y); y = y - h
     _, h = W:Button(parent, "Open Nameplate Style Rules", y, function()
-        EllesmereUI.OpenPlugin(PLUGIN_ID, "Styles", "Rules")
+        EllesmereUI.OpenPlugin(PLUGIN_ID, "NameplateStyle", "Rules")
     end); y = y - h
     return math.abs(y)
 end
@@ -356,12 +358,12 @@ local function Register()
     if not (EllesmereUI and EllesmereUI.RegisterPlugin) then return end
     if EllesmereUI.IsPluginRegistered(PLUGIN_ID) then return end
     EllesmereUI.RegisterPlugin(PLUGIN_ID, {
-        label = "Nameplate Styles",
+        label = "Nameplate Extras",
         modules = {
             {
-                key = "Styles",
-                title = "Rule Styling",
-                description = "Style nameplates from unit, target, cast and rank conditions.",
+                key = "NameplateStyle",
+                title = "Nameplate Style",
+                description = "Rule-based nameplate styling by unit, target, cast and rank.",
                 pages = { "Rules", "About" },
                 buildPage = function(pageName, parent, yOffset)
                     if pageName == "About" then return BuildAboutPage(parent, yOffset) end
@@ -381,7 +383,7 @@ local function Register()
 end
 
 local login = CreateFrame("Frame")
-login:RegisterEvent("PLAYER_LOGIN")
+    login:RegisterEvent("PLAYER_LOGIN")
 login:SetScript("OnEvent", function(self)
     self:UnregisterEvent("PLAYER_LOGIN")
     Register()

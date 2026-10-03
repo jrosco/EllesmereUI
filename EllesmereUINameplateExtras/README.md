@@ -1,6 +1,7 @@
-# EllesmereUI Nameplate Styles
+# EllesmereUI Nameplate Extras
 
-An add-on for EUI's nameplates that applies ordered visual rules to enemy and full friendly nameplates. It registers its own **Nameplate Styles** section using `EllesmereUI.RegisterPlugin`; it does not modify the built-in Nameplates options page.
+
+This extensible add-on currently provides one feature: **Nameplate Style**. It adds a **Nameplate Extras > Nameplate Style** section using `EllesmereUI.RegisterPlugin`; it does not modify the built-in Nameplates options page.
 
 ## Included rules
 
@@ -29,23 +30,23 @@ Turning an override off, disabling the plugin, or leaving a matching rule restor
 
 ## Install
 
-Copy the `EllesmereUINameplateStyles` folder into `Interface/AddOns`. It requires both `EllesmereUI` and `EllesmereUINameplates` to be enabled. Open the EUI options panel and select **Nameplate Styles > Rule Styling**.
+Copy the `EllesmereUINameplateExtras` folder into `Interface/AddOns`. It requires both `EllesmereUI` and `EllesmereUINameplates` to be enabled. Open the EUI options panel and select **Nameplate Extras > Nameplate Style**. As the addon is in early development, it starts with fresh `EllesmereUINameplateExtrasDB` settings; the former Styles settings/API are not migrated or aliased.
 
 ## Extension points
 
-The runtime is a separate addon with saved settings and a rule matcher. Future matchers/effects can be added in `EllesmereUINameplateStyles.lua` and surfaced in the plugin page. Other addon code can call:
+The public runtime API is `EllesmereUINameplateExtras`. Future features can be registered as additional modules in `EllesmereUINameplateExtras_Options.lua`; runtime matchers/effects belong in `EllesmereUINameplateExtras.lua` and its feature modules. Other addon code can call:
 
 ```lua
-EllesmereUINameplateStyles.Refresh()
-EllesmereUINameplateStyles.GetRules()
+EllesmereUINameplateExtras.Refresh()
+EllesmereUINameplateExtras.GetRules()
 ```
 
 `RegisterCondition(key, predicate)` adds a custom matcher for a corresponding key stored in a rule's `conditions` table. Predicates receive `(unitToken, traits, expectedValue, rule)` and should return `true` for a match. `RegisterSpellSchool(spellID, school)` can seed school metadata (`physical`, `holy`, `fire`, `nature`, `frost`, `shadow`, `arcane`, or `mixed`). After changing a rule programmatically, call `Refresh()`.
 
 ## Diagnostics and tests
 
-Run `/npstyles` with a visible enemy target to report matching rules and reapply the current style. Diagnostics v2 uses the same settings accessor as the options page; `settings shared with options` should be `true`. Settings initialize after SavedVariables load and rebind if the global table is replaced. Existing saved rules are preserved.
+Run `/npextras` with a visible enemy target to report matching rules and reapply the current style. Diagnostics v3 uses the same settings accessor as the options page; `settings shared with options` should be `true`. Settings initialize after SavedVariables load and rebind if the global table is replaced.
 
 Scale is a multiplier on EUI's base scale, including its target/cast animation. The plugin does not modify EUI's animation values.
 
-From the repository root, run `lua EllesmereUINameplateStyles/tests/runtime.lua` (or `npx --yes --package fengari-node-cli fengari EllesmereUINameplateStyles/tests/runtime.lua`). The mocked runtime tests cover delayed SavedVariables loading, table replacement, option callbacks, new rules, scale updates, frame recycling, and disabling styles. Cast tests cover engine repaints, texture replacement and spark anchors, interrupt flashes, opacity, borders, and restoration. They do not replace in-game testing on Forever and Retail.
+From the repository root, run `lua EllesmereUINameplateExtras/tests/runtime.lua` (or `npx --yes --package fengari-node-cli fengari EllesmereUINameplateExtras/tests/runtime.lua`). The mocked runtime tests cover delayed SavedVariables loading, table replacement, option callbacks, new rules, scale updates, frame recycling, and disabling styles. Cast tests cover engine repaints, texture replacement and spark anchors, interrupt flashes, opacity, borders, and restoration. They do not replace in-game testing on Forever and Retail.

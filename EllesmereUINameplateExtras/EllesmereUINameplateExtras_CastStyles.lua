@@ -10,7 +10,7 @@ local textures = {
     flat = "Interface\\Buttons\\WHITE8x8",
     blizzard = "Interface\\TargetingFrame\\UI-StatusBar",
 }
-EllesmereUINameplateStyles.CastStyleDefaults = defaults
+EllesmereUINameplateExtras.CastStyleDefaults = defaults
 
 local function PaintColor(plate, state, texture, entry)
     local style = state.style

@@ -117,24 +117,25 @@ local function Settings(name, scale, r)
     } }
 end
 local namespace = {}
-assert(loadfile("EllesmereUINameplateStyles/EllesmereUINameplateStyles.lua"))("EllesmereUINameplateStyles", namespace)
-assert(loadfile("EllesmereUINameplateStyles/EllesmereUINameplateStyles_CastStyles.lua"))("EllesmereUINameplateStyles", namespace)
-assert(EllesmereUINameplateStylesDB == nil, "SavedVariables initialized before ADDON_LOADED")
-local api = EllesmereUINameplateStyles
+assert(loadfile("EllesmereUINameplateExtras/EllesmereUINameplateExtras.lua"))("EllesmereUINameplateExtras", namespace)
+assert(loadfile("EllesmereUINameplateExtras/EllesmereUINameplateExtras_CastStyles.lua"))("EllesmereUINameplateExtras", namespace)
+assert(EllesmereUINameplateExtrasDB == nil, "new SavedVariables initialized before ADDON_LOADED")
+local api = EllesmereUINameplateExtras
+assert(api, "public API missing")
 
--- Model SavedVariables becoming available after addon chunks execute.
-EllesmereUINameplateStylesDB = Settings("Loaded rule", 150, 0.2)
-Fire("ADDON_LOADED", "EllesmereUINameplateStyles")
-assert(api.GetSettings() == EllesmereUINameplateStylesDB)
+-- Model the fresh Extras SavedVariables loading after addon chunks execute.
+EllesmereUINameplateExtrasDB = Settings("Loaded rule", 150, 0.2)
+Fire("ADDON_LOADED", "EllesmereUINameplateExtras")
+assert(api.GetSettings() == EllesmereUINameplateExtrasDB)
 assert(namespace.FindRule("nameplate1").name == "Loaded rule")
 Near(plate.scale, 1.5, "saved scale")
 Near(plate.health.color[1], 0.2, "saved color")
 
 -- Replacing the table must not leave the renderer reading its previous rules.
-EllesmereUINameplateStylesDB = Settings("Replacement rule", 115, 0.6)
+EllesmereUINameplateExtrasDB = Settings("Replacement rule", 115, 0.6)
 api.Refresh(); Flush()
-assert(api.GetRules() == EllesmereUINameplateStylesDB.rules)
-assert(namespace.db == EllesmereUINameplateStylesDB)
+assert(api.GetRules() == EllesmereUINameplateExtrasDB.rules)
+assert(namespace.db == EllesmereUINameplateExtrasDB)
 Near(plate.scale, 1.15, "replacement scale")
 Near(plate.health.color[1], 0.6, "replacement color")
 for _ = 1, 10 do
@@ -149,7 +150,7 @@ Near(plate.scale, 1.38, "animation scale multiplied once")
 api.Refresh(); Flush()
 Near(plate.scale, 1.38, "refresh preserves engine scale")
 
-local rows, spec = {}, nil
+local rows, spec, registeredID = {}, nil, nil
 local sectionHeaders = {}
 local parent = CreateFrame()
 local W = {}
@@ -190,14 +191,17 @@ EllesmereUI = {
         Point = function(frame, ...) frame:SetPoint(...) end,
     },
     IsSearchPrebuild = function() return false end,
-    RegisterPlugin = function(_, value) spec = value; return true end,
+    RegisterPlugin = function(id, value) registeredID = id; spec = value; return true end,
     IsPluginRegistered = function() return false end,
     GetPluginModuleKey = function() return "plugin:test:Styles" end,
     InvalidateModulePageCache = Noop,
     RefreshPage = function() spec.modules[1].buildPage("Rules", parent, 0) end,
 }
-assert(loadfile("EllesmereUINameplateStyles/EllesmereUINameplateStyles_Options.lua"))()
+assert(loadfile("EllesmereUINameplateExtras/EllesmereUINameplateExtras_Options.lua"))()
 Fire("PLAYER_LOGIN")
+assert(registeredID == "EllesmereUINameplateExtras")
+assert(spec.label == "Nameplate Extras")
+assert(spec.modules[1].key == "NameplateStyle" and spec.modules[1].title == "Nameplate Style")
 spec.modules[1].buildPage("Rules", parent, 0)
 local function HasHeader(prefix, suffix)
     for _, text in ipairs(sectionHeaders) do
@@ -205,7 +209,7 @@ local function HasHeader(prefix, suffix)
     end
     return false
 end
-assert(HasHeader("RULE ORDER - POSITION 1 OF 1", "(Replacement rule)"))
+assert(HasHeader("RULE ORDER - POSITION 1 OF 1", "(Replacement rule)"), table.concat(sectionHeaders, " | "))
 assert(HasHeader("MATCH CONDITIONS", "(Replacement rule)"))
 assert(HasHeader("APPEARANCE - NAMEPLATE", "(Replacement rule)"))
 assert(HasHeader("APPEARANCE - HEALTH BAR", "(Replacement rule)"))
@@ -268,13 +272,13 @@ api.Refresh(); Flush()
 Near(plate.scale, 1, "disable restores engine scale")
 
 -- Existing option callbacks must also follow a replaced SavedVariables table.
-EllesmereUINameplateStylesDB = Settings("Late replacement", 100, 0.1)
+EllesmereUINameplateExtrasDB = Settings("Late replacement", 100, 0.1)
 rows["Nameplate size (%)"].set(130)
 rows["Health-bar color"].set(0.4, 0.5, 0.6)
 Flush()
 Near(plate.scale, 1.3, "cached options use current settings")
 Near(plate.health.color[1], 0.4, "cached color picker uses current settings")
-assert(namespace.db == EllesmereUINameplateStylesDB)
+assert(namespace.db == EllesmereUINameplateExtrasDB)
 
 rows["Add Rule"].click(); Flush()
 rows["Delete Rule"].click(); Flush()

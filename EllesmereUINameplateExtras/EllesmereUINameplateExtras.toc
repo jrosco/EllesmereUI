@@ -1,14 +1,14 @@
 ## Interface: 120000, 120001, 120005, 120007, 120100, 16001
-## Title: |cff0cd29fEllesmereUI|r Nameplate Styles
+## Title: |cff0cd29fEllesmereUI|r Nameplate Extras
 ## Category: |cff0cd29fEllesmere|rUI
 ## Group: EllesmereUI
 ## Notes: Apply configurable visual rules to EllesmereUI nameplates.
 ## Author: Ellesmere
-## Version: 1.1.1
+## Version: 1.2.1
 ## Dependencies: EllesmereUI, EllesmereUINameplates
-## SavedVariables: EllesmereUINameplateStylesDB
+## SavedVariables: EllesmereUINameplateExtrasDB
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
 
-EllesmereUINameplateStyles.lua
-EllesmereUINameplateStyles_CastStyles.lua
-EllesmereUINameplateStyles_Options.lua
+EllesmereUINameplateExtras.lua
+EllesmereUINameplateExtras_CastStyles.lua
+EllesmereUINameplateExtras_Options.lua
