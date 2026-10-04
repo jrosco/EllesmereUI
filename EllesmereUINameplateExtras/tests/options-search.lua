@@ -12,6 +12,9 @@ function CreateFrame(kind, _, parent)
     function frame:GetWidth() return self.width or 800 end
     function frame:GetHeight() return self.height end
     function frame:GetFrameLevel() return 10 end
+    function frame:GetParent() return self.parent end
+    function frame:SetAlpha(value) self.alpha = value end
+    function frame:SetAllPoints(other) self.allPoints = other end
     function frame:SetSize(w, h) self.width, self.height = w, h end
     function frame:SetPoint(...) self.point = { ... } end
     function frame:ClearAllPoints() self.point = nil end
@@ -205,7 +208,7 @@ local function PrebuildTest()
     assert(index["Unit type"].tooltip:find("Any creature", 1, true), "condition tooltip lost")
     for _, text in ipairs(actions) do assert(index[text], "action search entry lost: " .. text) end
     Build()
-    assert(#refreshes == 7, "live condition refresh registrations missing")
+    assert(#refreshes >= 7, "live condition refresh registrations missing")
     for _, label in ipairs({ "Unit type", "Reaction", "Classification", "Target state", "Cast state", "Spell school", "Threat" }) do
         assert(dropdowns[label] and rawget(dropdowns[label].parent, "nativeFrame"), "live dropdown missing: " .. label)
         assert(dropdowns[label].parent._slotLabel == label, "slot highlight metadata lost")

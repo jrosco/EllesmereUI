@@ -248,11 +248,58 @@ local function BuildRulesPage(parent, yOffset)
     local rule, selected = GetRule()
     local barTextureValues, barTextureOrder = GetBarTextureOptions()
 
+    local function GlobalLocked() return DB().enabled == false end
+    local function RuleLocked()
+        return GlobalLocked() or rule.enabled == false or GetRule().enabled == false
+    end
+    local function LockTip()
+        if GlobalLocked() then return "Enable rule styling to edit rules." end
+        return "Enable this rule to edit its settings."
+    end
+    local function LockConfig(cfg, scope)
+        if not cfg or cfg.type == "spacer" then return cfg end
+        local locked = scope == "global" and GlobalLocked or RuleLocked
+        local disabled, disabledTip, setValue = cfg.disabled, cfg.disabledTooltip, cfg.setValue
+        cfg.disabled = function() return locked() or (disabled and disabled()) or false end
+        cfg.disabledTooltip = function()
+            if locked() then return LockTip() end
+            if type(disabledTip) == "function" then return disabledTip() end
+            return disabledTip
+        end
+        if setValue then
+            cfg.setValue = function(...)
+                if cfg.disabled() then return end
+                return setValue(...)
+            end
+        end
+        return cfg
+    end
+    local function LockedRow(left, right, leftScope, rightScope)
+        return W:DualRow(parent, y, LockConfig(left, leftScope), LockConfig(right, rightScope))
+    end
+    local function AttachLock(control, locked, tip, label)
+        local block = CreateFrame("Frame", nil, control:GetParent())
+        block:SetAllPoints(control)
+        block:SetFrameLevel(control:GetFrameLevel() + 10)
+        block:EnableMouse(true)
+        block:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(control, tip()) end)
+        block:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+        local function Update()
+            local off = locked()
+            control:SetAlpha(off and 0.3 or 1)
+            control:EnableMouse(not off)
+            if label then label:SetAlpha(off and 0.3 or 1) end
+            if off then block:Show() else block:Hide() end
+        end
+        EllesmereUI.RegisterWidgetRefresh(Update)
+        Update()
+    end
+
     _, h = W:SectionHeader(parent, "RULE STYLING", y); y = y - h
     _, h = W:Toggle(parent, "Enable rule styling", y,
         function() return DB().enabled ~= false end,
-        function(value) DB().enabled = value; Changed() end,
-        "Enable or disable all rule styling in the active profile. Turning this off restores EUI appearance without deleting rules, changing their individual enabled settings, or preventing editing.")
+        function(value) DB().enabled = value; Changed(); Rebuild() end,
+        "Enable or disable all rule styling in the active profile. Turning this off restores EUI appearance and locks the rule editor without deleting rules or changing their individual enabled settings.")
     y = y - h
 
     -- Search stores exact section names on first indexing. Keep them stable;
@@ -265,7 +312,7 @@ local function BuildRulesPage(parent, yOffset)
         labels[key] = ("[%d] %s"):format(i, item.name or ("Rule " .. i))
         order[#order + 1] = key
     end
-    _, h = W:DualRow(parent, y, {
+    _, h = LockedRow({
         type = "dropdown", text = "Edit rule", values = labels, order = order,
         getValue = function() return tostring(DB().selectedRule or 1) end,
         setValue = function(value)
@@ -287,9 +334,15 @@ local function BuildRulesPage(parent, yOffset)
             rule.name = name
             Rebuild()
         end,
-    }); y = y - h
+    }, "global"); y = y - h
     local actions = {}
-    local function Action(text, onClick) actions[#actions + 1] = { text = text, onClick = onClick } end
+    local function Action(text, onClick)
+        local locked = text == "Add Rule" and GlobalLocked or RuleLocked
+        actions[#actions + 1] = { text = text, locked = locked, onClick = function()
+            if locked() then return end
+            onClick()
+        end }
+    end
     Action("Add Rule", function()
         local current = DB()
         if #current.rules >= MAX_RULES then return end
@@ -338,7 +391,7 @@ local function BuildRulesPage(parent, yOffset)
                 -- A popup can remain open while the user changes character profiles
                 -- or edits rules. Delete only the rule that opened this dialog.
                 local latest = DB()
-                if latest ~= current or #latest.rules <= 1 then return end
+                if latest ~= current or GlobalLocked() or rule.enabled == false or #latest.rules <= 1 then return end
                 local index
                 for i, candidate in ipairs(latest.rules) do
                     if candidate == rule then index = i; break end
@@ -408,6 +461,7 @@ local function BuildRulesPage(parent, yOffset)
             button:ClearAllPoints()
             PP.Size(button, buttonWidth, 32)
             PP.Point(button, "LEFT", row, "LEFT", (i - 1) * (buttonWidth + gap), 0)
+            AttachLock(button, action.locked, LockTip)
         end
         row._labelText = table.concat(names, " ")
         local localized = table.concat(localizedNames, " ")
@@ -416,9 +470,10 @@ local function BuildRulesPage(parent, yOffset)
     y = y - h
 
     _, h = W:SectionHeader(parent, "MATCH CONDITIONS", y); y = y - h
-    _, h = W:Toggle(parent, "Rule enabled", y,
-        function() return GetRule().enabled ~= false end,
-        function(value) GetRule().enabled = value; Rebuild(); Changed() end)
+    _, h = LockedRow({ type = "toggle", text = "Rule enabled",
+        getValue = function() return GetRule().enabled ~= false end,
+        setValue = function(value) GetRule().enabled = value; Rebuild(); Changed() end,
+    }, nil, "global")
     y = y - h
 
     local function ConditionMultiDropdown(label, key, values, keys, tooltip)
@@ -427,9 +482,11 @@ local function BuildRulesPage(parent, yOffset)
             if value ~= "any" then
                 local item = { key = value, label = values[value] }
                 if key == "threat" then item.tooltip = THREAT_TIPS[value] end
-                if key == "castState" and CUSTOM_CAST_STATES[value] then
-                    item.lockedFn = function() return not addon.SupportsCastColorStates() end
-                    item.lockedTooltip = CUSTOM_CAST_STYLE_TIP
+                local requiresStyle = key == "castState" and CUSTOM_CAST_STATES[value]
+                item.lockedFn = function() return RuleLocked() or (requiresStyle and not addon.SupportsCastColorStates()) or false end
+                item.lockedTooltip = function()
+                    if RuleLocked() then return LockTip() end
+                    return CUSTOM_CAST_STYLE_TIP
                 end
                 items[#items + 1] = item
             end
@@ -447,6 +504,7 @@ local function BuildRulesPage(parent, yOffset)
             emptyLabel = values.any,
             getSelected = function(option) return GetSelection()[option] == true end,
             setSelected = function(option, selected)
+                if RuleLocked() then return end
                 if key == "castState" and CUSTOM_CAST_STATES[option] and not addon.SupportsCastColorStates() then return end
                 local current = GetRule()
                 local value = GetSelection()
@@ -477,6 +535,7 @@ local function BuildRulesPage(parent, yOffset)
             { emptyLabel = condition.emptyLabel, label = condition.text })
         PP.Point(ddBtn, "RIGHT", region, "RIGHT", -20, 0)
         EllesmereUI.RegisterWidgetRefresh(refresh)
+        AttachLock(ddBtn, RuleLocked, LockTip, label)
 
         if condition.tooltip then
             local hitFrame = CreateFrame("Frame", nil, region)
@@ -485,7 +544,7 @@ local function BuildRulesPage(parent, yOffset)
             hitFrame:SetFrameLevel(region:GetFrameLevel() + 10)
             hitFrame:EnableMouse(true)
             hitFrame:SetScript("OnEnter", function()
-                EllesmereUI.ShowWidgetTooltip(label, condition.tooltip)
+                EllesmereUI.ShowWidgetTooltip(label, RuleLocked() and LockTip() or condition.tooltip)
             end)
             hitFrame:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
             hitFrame:SetMouseClickEnabled(false)
@@ -523,7 +582,7 @@ local function BuildRulesPage(parent, yOffset)
     local threat = ConditionMultiDropdown("Threat", "threat", THREATS, THREAT_ORDER,
         "Matches the actual aggro holder: a tank, a non-tank (Damage/Healer), or you. Uses detailed threat data, not temporary spell targets. Multiple selections combine with OR; other filter groups combine with AND. Secret or unavailable threat/role data does not match. Unassigned roles do not count as known tanks or non-tanks.")
     local threatRow
-    threatRow, h = W:DualRow(parent, y,
+    threatRow, h = LockedRow(
         { type = "spacer", text = threat.text, tooltip = threat.tooltip }, {
         type = "toggle", text = "Quest Objective",
         getValue = function() return GetRule().conditions.questObjective == "yes" end,
@@ -536,7 +595,7 @@ local function BuildRulesPage(parent, yOffset)
     if not EllesmereUI.IsSearchPrebuild() then BuildConditionMultiDropdown(threatRow._leftRegion, threat) end
     y = y - h
     _, h = W:SectionHeader(parent, "APPEARANCE - NAMEPLATE", y); y = y - h
-    _, h = W:DualRow(parent, y, {
+    _, h = LockedRow({
         type = "slider", text = "Nameplate size (%)", min = 50, max = 200, step = 5,
         getValue = function() return GetRule().style.scale or 100 end,
         setValue = function(value) GetRule().style.scale = value; Changed() end,
@@ -549,17 +608,18 @@ local function BuildRulesPage(parent, yOffset)
     })
     y = y - h
     _, h = W:SectionHeader(parent, "APPEARANCE - HEALTH BAR", y); y = y - h
-    _, h = W:Toggle(parent, "Override health bar", y,
-        function() return GetRule().style.healthEnabled ~= false end,
-        function(value) GetRule().style.healthEnabled = value; Changed(); Rebuild() end,
-        "Apply the health-bar settings below when this rule wins. Off restores EUI color and texture and hides the additional border. Nameplate size, opacity and cast overrides remain independent.")
+    _, h = LockedRow({ type = "toggle", text = "Override health bar",
+        getValue = function() return GetRule().style.healthEnabled ~= false end,
+        setValue = function(value) GetRule().style.healthEnabled = value; Changed(); Rebuild() end,
+        tooltip = "Apply the health-bar settings below when this rule wins. Off restores EUI color and texture and hides the additional border. Nameplate size, opacity and cast overrides remain independent.",
+    })
     y = y - h
     local function HealthOff() return GetRule().style.healthEnabled == false end
     local function HealthBorderOff()
         local style = GetRule().style
         return HealthOff() or style.borderEnabled == false or (style.borderSize or 0) <= 0
     end
-    _, h = W:DualRow(parent, y, {
+    _, h = LockedRow({
         type = "toggle", text = "Custom health color", disabled = HealthOff,
         disabledTooltip = "Enable Override health bar first.",
         getValue = function() return GetRule().style.healthColorEnabled ~= false end,
@@ -574,14 +634,14 @@ local function BuildRulesPage(parent, yOffset)
         end,
         setValue = function(r, g, b) GetRule().style.healthColor = { r = r, g = g, b = b }; Changed() end,
     }); y = y - h
-    _, h = W:DualRow(parent, y, {
+    _, h = LockedRow({
         type = "dropdown", text = "Health-bar texture", values = barTextureValues, order = barTextureOrder,
         disabled = HealthOff, disabledTooltip = "Enable Override health bar first.",
         tooltip = "Use EUI texture restores the current EUI texture. Choose Flat or Blizzard to override it.",
         getValue = function() return GetRule().style.texture or "eui" end,
         setValue = function(value) GetRule().style.texture = value; Changed() end,
     }, nil); y = y - h
-    _, h = W:DualRow(parent, y, {
+    _, h = LockedRow({
         type = "toggle", text = "Additional health border", disabled = HealthOff,
         disabledTooltip = "Enable Override health bar first.",
         getValue = function()
@@ -603,7 +663,7 @@ local function BuildRulesPage(parent, yOffset)
         end,
         setValue = function(r, g, b) GetRule().style.borderColor = { r = r, g = g, b = b }; Changed() end,
     }); y = y - h
-    _, h = W:DualRow(parent, y, {
+    _, h = LockedRow({
         type = "slider", text = "Health border size", min = 1, max = 8, step = 1,
         disabled = HealthBorderOff, disabledTooltip = "Enable Additional health border first.",
         tooltip = "Thickness of the additional health-bar outline. Turning the border off keeps this value and its color for later.",
@@ -612,10 +672,11 @@ local function BuildRulesPage(parent, yOffset)
     }, nil); y = y - h
 
     _, h = W:SectionHeader(parent, "APPEARANCE - CAST BAR", y); y = y - h
-    _, h = W:Toggle(parent, "Override cast bar", y,
-        function() return GetRule().style.castEnabled == true end,
-        function(value) GetRule().style.castEnabled = value; Changed(); Rebuild() end,
-        "Apply the cast settings below when this rule wins. Off restores EUI styling. Only affects nameplates with an EUI cast bar; friendly plates currently have none.")
+    _, h = LockedRow({ type = "toggle", text = "Override cast bar",
+        getValue = function() return GetRule().style.castEnabled == true end,
+        setValue = function(value) GetRule().style.castEnabled = value; Changed(); Rebuild() end,
+        tooltip = "Apply the cast settings below when this rule wins. Off restores EUI styling. Only affects nameplates with an EUI cast bar; friendly plates currently have none.",
+    })
     y = y - h
     local defaults = addon.CastStyleDefaults
     local function CastOff() return GetRule().style.castEnabled ~= true end
@@ -641,16 +702,16 @@ local function BuildRulesPage(parent, yOffset)
     end
     local colorToggle = CastToggle("Custom cast color", "castColorEnabled")
     colorToggle.tooltip = "Overrides the selected EUI cast-color states: Interruptible cast (interrupt available), Interrupt on CD, or Uninterruptible cast. Rules are prioritized separately per color state, so separate rules can supply different colors. Explicit Casting overrides all three. Interrupted flashes, shield visibility and kick-ready indicators are preserved."
-    _, h = W:DualRow(parent, y, colorToggle,
+    _, h = LockedRow(colorToggle,
         CastColor("Cast fill color", "castColor", "castColorEnabled")); y = y - h
-    _, h = W:DualRow(parent, y, {
+    _, h = LockedRow({
         type = "dropdown", text = "Cast-bar texture", values = barTextureValues, order = barTextureOrder,
         disabled = CastOff, disabledTooltip = "Enable Override cast bar first.",
         tooltip = "Use EUI texture leaves the current texture unchanged. Flat and Blizzard apply to EUI and Classic styles; stock Blizzard-style cast artwork retains its atlas.",
         getValue = function() return GetRule().style.castTexture or "eui" end,
         setValue = function(value) GetRule().style.castTexture = value; Changed() end,
     }, nil); y = y - h
-    _, h = W:DualRow(parent, y, CastToggle("Custom cast opacity", "castOpacityEnabled"), {
+    _, h = LockedRow(CastToggle("Custom cast opacity", "castOpacityEnabled"), {
         type = "slider", text = "Cast opacity (%)", min = 0, max = 100, step = 5,
         disabled = function() return CastOff() or GetRule().style.castOpacityEnabled ~= true end,
         disabledTooltip = "Enable Custom cast opacity first.",
@@ -658,9 +719,9 @@ local function BuildRulesPage(parent, yOffset)
         getValue = function() return GetRule().style.castOpacity or defaults.castOpacity end,
         setValue = function(value) GetRule().style.castOpacity = value; Changed() end,
     }); y = y - h
-    _, h = W:DualRow(parent, y, CastToggle("Additional cast border", "castBorderEnabled"),
+    _, h = LockedRow(CastToggle("Additional cast border", "castBorderEnabled"),
         CastColor("Cast border color", "castBorderColor", "castBorderEnabled")); y = y - h
-    _, h = W:DualRow(parent, y, {
+    _, h = LockedRow({
         type = "slider", text = "Cast border size", min = 1, max = 8, step = 1,
         disabled = function() return CastOff() or GetRule().style.castBorderEnabled ~= true end,
         disabledTooltip = "Enable Additional cast border first.",

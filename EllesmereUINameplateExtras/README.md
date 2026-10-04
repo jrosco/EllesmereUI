@@ -3,7 +3,7 @@
 
 This extensible add-on currently provides one feature: **Nameplate Style**. It adds a **Nameplate Extras > Nameplate Style** section using `EllesmereUI.RegisterPlugin`; it does not modify the built-in Nameplates options page.
 
-The **Rules** page starts with **Enable rule styling**, the master switch for the active profile. Turning it off restores EUI appearance while keeping the saved rules, order, selection and individual enabled flags; editing remains available. The **About** page provides a short overview of custom appearances, cast colors, profiles and sharing.
+The **Rules** page starts with **Enable rule styling**, the master switch for the active profile. Turning it off restores EUI appearance and locks the rule editor while keeping saved rules, order, selection and individual enabled flags. Only the master toggle remains usable on Rules until styling is reenabled. Disabling the selected rule locks its name, conditions, appearance, Copy/Delete and reorder controls; rule selection, Add Rule and Rule enabled remain available while global styling is on. Lock tooltips explain what to enable, and existing override/style requirements still apply after unlocking. The **About** page provides a short overview of custom appearances, cast colors, profiles and sharing.
 
 Under **Rule Order**, Edit rule and Rule name share one row. Add, Copy, Delete, Move Up and Move Down share a single action row that stays together during page search.
 
@@ -90,3 +90,5 @@ Run `lua EllesmereUINameplateExtras/tests/cast-appearances.lua` (or use Fengari)
 Run `lua EllesmereUINameplateExtras/tests/target-states.lua` (or use Fengari) for target-present/absent matching, retargeting and clearing-target appearance transitions, legacy scalar conditions, OR combinations, other AND filters, and restricted-value handling.
 
 Run `lua EllesmereUINameplateExtras/tests/threat.lua` (or use Fengari) for aggro-holder roles, Threat on me, party/raid lookup, temporary spell targets, restricted/missing data, API-call gating, AND/OR logic, and threat/role-change appearance refreshes.
+
+Run `lua EllesmereUINameplateExtras/tests/ui-locks.lua` (or use Fengari) to verify global/individual editor locks, hover explanations, stale input/dialog guards, preserved rule data, reenable behavior, and override prerequisites.

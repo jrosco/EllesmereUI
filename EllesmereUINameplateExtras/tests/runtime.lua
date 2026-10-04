@@ -26,6 +26,7 @@ function CreateFrame(kind, _, parentFrame)
     function frame:GetScale() return self.scale end
     function frame:SetScale(value) self.scale = value end
     function frame:GetAlpha() return self.alpha end
+    function frame:GetParent() return self.parent end
     function frame:SetAlpha(value) self.alpha = value end
     function frame:GetFrameStrata() return "MEDIUM" end
     function frame:GetFrameLevel() return 10 end
@@ -37,6 +38,8 @@ function CreateFrame(kind, _, parentFrame)
         frame[method] = Noop
     end
     function frame:CreateTexture() return CreateFrame("Texture", nil, self) end
+    function frame:SetAllPoints(other) self.allPoints = other end
+    function frame:EnableMouse(value) self.mouseEnabled = value end
     function frame:CreateFontString()
         local font = CreateFrame("FontString", nil, self)
         function font:SetText(text) self.text = text end
@@ -317,6 +320,7 @@ local rows, spec, registeredID = {}, nil, nil
 local sectionHeaders = {}
 local parent = CreateFrame()
 local W = {}
+local widgetRefreshes = {}
 function W:SectionHeader(_, text)
     if text == "RULE STYLING" or text == "NAMEPLATE EXTRAS" then
         for index = #sectionHeaders, 1, -1 do sectionHeaders[index] = nil end
@@ -374,14 +378,16 @@ function W:DualRow(_, _, config, right)
         row._leftRegion = CreateFrame("Frame", nil, row)
         row._rightRegion = CreateFrame("Frame", nil, row)
         if right and right.type == "toggle" then
-            rows[right.text] = { get = right.getValue, set = right.setValue, row = row }
+            rows[right.text] = { get = right.getValue, set = right.setValue, row = row,
+                disabled = right.disabled, disabledTooltip = right.disabledTooltip }
         end
         return row, 50
     end
     local row = CreateFrame()
     for _, cfg in ipairs({ config, right }) do
         if cfg.type == "colorpicker" then assert(type(cfg.getValue()) == "number") end
-        rows[cfg.text] = { get = cfg.getValue, set = cfg.setValue, disabled = cfg.disabled, values = cfg.values, row = row }
+        rows[cfg.text] = { get = cfg.getValue, set = cfg.setValue, disabled = cfg.disabled,
+            disabledTooltip = cfg.disabledTooltip, values = cfg.values, row = row }
     end
     return row, 50
 end
@@ -414,14 +420,14 @@ EllesmereUI = {
     end,
     MakeFont = function(parent) return parent:CreateFontString() end,
     L = function(text) return text end,
-    RegisterWidgetRefresh = Noop,
+    RegisterWidgetRefresh = function(callback) widgetRefreshes[#widgetRefreshes + 1] = callback end,
     ShowWidgetTooltip = Noop,
     HideWidgetTooltip = Noop,
     BuildVisOptsCBDropdown = function(parent, width, frameLevel, items, get, set, _, _, _, _, _, opts)
         local button = CreateFrame("Button", nil, parent)
         button:SetSize(width, 30)
         button:SetFrameLevel(frameLevel)
-        rows[opts.label] = { get = get, set = set, items = items, emptyLabel = opts.emptyLabel, row = parent.parent }
+        rows[opts.label] = { get = get, set = set, items = items, emptyLabel = opts.emptyLabel, row = parent.parent, button = button }
         return button, Noop
     end,
     ResolveTexturePath = function(textureTable, key, fallback) return textureTable[key] or fallback end,
@@ -453,7 +459,10 @@ EllesmereUI = {
     IsPluginRegistered = function() return false end,
     GetPluginModuleKey = function() return "plugin:test:Styles" end,
     InvalidateModulePageCache = Noop,
-    RefreshPage = function() spec.modules[1].buildPage("Rules", parent, 0) end,
+    RefreshPage = function()
+        for i = #widgetRefreshes, 1, -1 do widgetRefreshes[i] = nil end
+        spec.modules[1].buildPage("Rules", parent, 0)
+    end,
 }
 assert(loadfile("EllesmereUINameplateExtras/EllesmereUINameplateExtras_RuleIO.lua"))()
 assert(loadfile("EllesmereUINameplateExtras/EllesmereUINameplateExtras_Options.lua"))()
@@ -465,6 +474,11 @@ assert(spec.modules[1].pages[2] == "Profiles" and spec.modules[1].pages[3] == "S
 spec.modules[1].buildPage("Rules", parent, 0)
 assert(rows["Edit rule"].row == rows["Rule name"].row, "selector and name must share a row")
 assert(rows["Nameplate size (%)"].row == rows["Opacity (%)"].row, "nameplate size and opacity must share a row")
+if ... == "ui-locks" then
+    return { api = api, namespace = namespace, rows = rows, spec = spec, parent = parent,
+        plate = plate, frames = frames, Flush = Flush, refreshes = widgetRefreshes,
+        GetConfirm = function() return deleteConfirm end }
+end
 local masterToggle = assert(rows["Enable rule styling"], "Rules page is missing the global toggle")
 local storedRules, storedSelection = api.GetRules(), api.GetSettings().selectedRule
 local enabledFlags = {}
@@ -478,8 +492,9 @@ for i, rule in ipairs(storedRules) do assert(rule.enabled == enabledFlags[i], "g
 Near(plate:GetScale(), 1.2, "global disable restores engine scale")
 local storedScale = storedRules[1].style.scale
 rows["Nameplate size (%)"].set(storedScale + 5); Flush()
-assert(storedRules[1].style.scale == storedScale + 5, "rules must remain editable while global styling is off")
-Near(plate:GetScale(), 1.2, "editing while disabled must not apply live styling")
+assert(rows["Nameplate size (%)"].disabled() and storedRules[1].style.scale == storedScale,
+    "global styling off must lock rule edits")
+Near(plate:GetScale(), 1.2, "locked edits must not apply live styling")
 rows["Nameplate size (%)"].set(storedScale); Flush()
 masterToggle.set(true); Flush()
 Near(plate:GetScale(), styledScale, "global reenable restores rule appearance")
@@ -653,7 +668,7 @@ for _, item in ipairs(castState.items) do castItems[item.key] = item end
 local originalCastSelection = api.GetRules()[1].conditions.castState
 for _, key in ipairs({ "interruptible", "interruptOnCD", "uninterruptible" }) do
     assert(castItems[key].lockedFn and not castItems[key].lockedFn(), "EUI cast color choice must be enabled")
-    assert(castItems[key].lockedTooltip:find("Enable EUI or Classic WoW UI", 1, true), "style lock must explain supported styles")
+    assert(castItems[key].lockedTooltip():find("Enable EUI or Classic WoW UI", 1, true), "style lock must explain supported styles")
     castState.set(key, true)
 end
 for _, style in ipairs({ "blizzard", "forever" }) do
@@ -664,7 +679,7 @@ for _, style in ipairs({ "blizzard", "forever" }) do
         assert(castState.get(key), "inactive choices must preserve saved selections")
     end
     for _, key in ipairs({ "none", "casting", "channel", "empowered" }) do
-        assert(not castItems[key].lockedFn, "ordinary cast choices must remain available")
+        assert(not castItems[key].lockedFn(), "ordinary cast choices must remain available")
     end
 end
 renderedStyle = "classic"

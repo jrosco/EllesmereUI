@@ -257,9 +257,9 @@ for _, style in ipairs({ "eui", "classic", "blizzard", "forever" }) do
     local supported = api.SupportsCastColorStates()
     for _, key in ipairs(keys) do
         Equal(items[key].lockedFn(), not supported, style .. " editor/runtime lock agreement " .. key)
-        Equal(type(items[key].lockedTooltip), "string", "state lock explains reload requirement")
+        Equal(type(items[key].lockedTooltip()), "string", "state lock explains reload requirement")
     end
-    Equal(items.casting.lockedFn, nil, style .. " broad Casting remains editable")
+    Equal(items.casting.lockedFn(), false, style .. " broad Casting remains editable")
 end
 np._npStyle = "blizzard"
 rule.conditions.castState = { interruptible = true }
