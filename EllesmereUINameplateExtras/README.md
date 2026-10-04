@@ -3,6 +3,8 @@
 
 This extensible add-on currently provides one feature: **Nameplate Style**. It adds a **Nameplate Extras > Nameplate Style** section using `EllesmereUI.RegisterPlugin`; it does not modify the built-in Nameplates options page.
 
+The **Rules** page starts with **Enable rule styling**, the master switch for the active profile. Turning it off restores EUI appearance while keeping the saved rules, order, selection and individual enabled flags; editing remains available. The **About** page provides a short overview of custom appearances, cast colors, profiles and sharing.
+
 ## Character profiles
 
 The **Profiles** tab assigns a named rules profile to each character. **Default** is shared by characters that have not selected another profile. Creating a profile starts with the built-in default rules and appearance settings, then assigns only the current character; selecting the same named profile on other characters shares its rules with them. Renaming or deleting a named profile updates every character assigned to it. EUI's own active profile does not control these assignments; use **Copy Rule** to duplicate an individual rule.

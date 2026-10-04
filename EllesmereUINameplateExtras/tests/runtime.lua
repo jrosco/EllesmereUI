@@ -37,7 +37,16 @@ function CreateFrame(kind, _, parentFrame)
         frame[method] = Noop
     end
     function frame:CreateTexture() return CreateFrame("Texture", nil, self) end
-    function frame:CreateFontString() return CreateFrame("FontString", nil, self) end
+    function frame:CreateFontString()
+        local font = CreateFrame("FontString", nil, self)
+        function font:SetText(text) self.text = text end
+        function font:SetWidth(width) self.width = width end
+        function font:SetWordWrap(wrap) self.wordWrap = wrap end
+        function font:GetStringHeight()
+            return math.max(1, math.ceil(#(self.text or "") * 7 / (self.width or 800))) * 16
+        end
+        return font
+    end
     function frame:SetPoint(...) self.point = { ... } end
     function frame:GetNumPoints() return self.point and 1 or 0 end
     function frame:GetPoint() return unpack(self.point) end
@@ -307,7 +316,7 @@ local sectionHeaders = {}
 local parent = CreateFrame()
 local W = {}
 function W:SectionHeader(_, text)
-    if text:find("^RULE ORDER") then
+    if text == "RULE STYLING" or text == "NAMEPLATE EXTRAS" then
         for index = #sectionHeaders, 1, -1 do sectionHeaders[index] = nil end
     end
     sectionHeaders[#sectionHeaders + 1] = text
@@ -338,6 +347,13 @@ function W:WideTripleButton(_, first, second, third, _, onFirst, onSecond, onThi
     return row, 57
 end
 function W:Toggle(_, text, _, get, set) rows[text] = { get = get, set = set }; return {}, 50 end
+function W:Spacer(parent, y, height)
+    if EllesmereUI.IsSearchPrebuild() then return {}, height end
+    local row = CreateFrame("Frame", nil, parent)
+    row:SetSize(parent:GetWidth(), height)
+    row:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, y)
+    return row, height
+end
 function W:Slider(_, text, _, _, _, _, get, set) rows[text] = { get = get, set = set }; return {}, 50 end
 function W:Dropdown(_, text, _, values, get, set) rows[text] = { get = get, set = set, values = values }; return {}, 50 end
 function W:DualRow(_, _, config, right)
@@ -437,6 +453,54 @@ assert(spec.label == "Nameplate Extras")
 assert(spec.modules[1].key == "NameplateStyle" and spec.modules[1].title == "Nameplate Style")
 assert(spec.modules[1].pages[2] == "Profiles" and spec.modules[1].pages[3] == "Sharing")
 spec.modules[1].buildPage("Rules", parent, 0)
+local masterToggle = assert(rows["Enable rule styling"], "Rules page is missing the global toggle")
+local storedRules, storedSelection = api.GetRules(), api.GetSettings().selectedRule
+local enabledFlags = {}
+for i, rule in ipairs(storedRules) do enabledFlags[i] = rule.enabled end
+local styledScale = plate:GetScale()
+masterToggle.set(false); Flush()
+assert(not masterToggle.get() and api.GetSettings().enabled == false)
+assert(api.GetRules() == storedRules and api.GetSettings().selectedRule == storedSelection,
+    "global disable replaced rules or changed selection")
+for i, rule in ipairs(storedRules) do assert(rule.enabled == enabledFlags[i], "global disable changed individual rule flags") end
+Near(plate:GetScale(), 1.2, "global disable restores engine scale")
+local storedScale = storedRules[1].style.scale
+rows["Nameplate size (%)"].set(storedScale + 5); Flush()
+assert(storedRules[1].style.scale == storedScale + 5, "rules must remain editable while global styling is off")
+Near(plate:GetScale(), 1.2, "editing while disabled must not apply live styling")
+rows["Nameplate size (%)"].set(storedScale); Flush()
+masterToggle.set(true); Flush()
+Near(plate:GetScale(), styledScale, "global reenable restores rule appearance")
+assert(api.GetRules() == storedRules and api.GetSettings().selectedRule == storedSelection,
+    "global reenable changed rules or selection")
+for i, rule in ipairs(storedRules) do assert(rule.enabled == enabledFlags[i], "global reenable changed individual rule flags") end
+rows["Enable rule styling"] = nil
+local beforeAbout = #frames
+local oldMetadata = C_AddOns
+C_AddOns = { GetAddOnMetadata = function(name, key)
+    assert(name == "EllesmereUINameplateExtras" and key == "Version")
+    return "test-version"
+end }
+local aboutHeight = spec.modules[1].buildPage("About", parent, 0)
+C_AddOns = oldMetadata
+assert(rows["Enable rule styling"] == nil, "About must not contain the global toggle")
+assert(aboutHeight > 200, "About page is missing its summary")
+local aboutText = {}
+for i = beforeAbout + 1, #frames do
+    local frame = frames[i]
+    if frame.kind == "FontString" and frame.text then
+        assert(frame.wordWrap == true and frame.width > 0, "About paragraphs must wrap to the page width")
+        aboutText[#aboutText + 1] = frame.text
+    end
+end
+local aboutBody = table.concat(aboutText, "\n")
+for _, detail in ipairs({ "test-version", "rule-based styling", "size and opacity", "quest objectives",
+    "interruptible casts", "interrupts on cooldown", "uninterruptible casts", "profiles", "export or import",
+    "Enable rule styling", "without deleting" }) do
+    assert(aboutBody:find(detail, 1, true), "About is missing " .. detail)
+end
+assert(rows["Open Nameplate Style Rules"], "About must retain its Rules navigation button")
+spec.modules[1].buildPage("Rules", parent, 0)
 
 spec.modules[1].buildPage("Profiles", parent, 0)
 assert(rows["Profile for this character"].values.Default,
@@ -504,7 +568,7 @@ local function HasHeader(text)
     return false
 end
 assert(HasHeader("RULE ORDER"), table.concat(sectionHeaders, " | "))
-assert(rows["Edit rule"].values["1"] == "1 of 1 - Shared Default")
+assert(rows["Edit rule"].values["1"] == "[1] Shared Default")
 assert(HasHeader("MATCH CONDITIONS"))
 assert(HasHeader("APPEARANCE - NAMEPLATE"))
 assert(HasHeader("APPEARANCE - HEALTH BAR"))
@@ -678,7 +742,7 @@ activeCast = nil
 assert(namespace.FindRule("nameplate1") == api.GetRules()[1], "empty school selection should mean Any")
 
 rows["Add Rule"].click(); Flush()
-assert(rows["Edit rule"].values["1"] == "1 of 2 - Custom Rule 2")
+assert(rows["Edit rule"].values["1"] == "[1] Custom Rule 2")
 assert(namespace.FindRule("nameplate1") == api.GetRules()[1], "new rule not selected by renderer")
 Near(plate.scale, 1.2, "new rule scale")
 Near(plate.health.color[1], 1, "new rule color")
@@ -687,7 +751,7 @@ local renamed = api.GetRules()[1]
 local style, conditions = renamed.style, renamed.conditions
 rows["Rule name"].set("  My Target Rule  ")
 assert(renamed.name == "My Target Rule", "rename must trim and save")
-assert(rows["Edit rule"].values["1"] == "1 of 2 - My Target Rule", "dropdown label not updated")
+assert(rows["Edit rule"].values["1"] == "[1] My Target Rule", "dropdown label not updated")
 assert(HasHeader("APPEARANCE - NAMEPLATE"), "stable appearance section missing after rename")
 assert(api.GetSettings().selectedRule == 1 and api.GetRules()[1] == renamed, "rename changed order or selection")
 assert(renamed.style == style and renamed.conditions == conditions, "rename changed rule behavior")
@@ -705,16 +769,16 @@ assert(copy.conditions.target.yes == renamed.conditions.target.yes
 assert(api.GetSettings().selectedRule == 2 and rows["Rule name"].get() == copy.name,
     "copy was not selected for editing")
 rows["Edit rule"].set("3")
-assert(rows["Edit rule"].values["3"] == "3 of 3 - Shared Default")
+assert(rows["Edit rule"].values["3"] == "[3] Shared Default")
 oldNameField.set("Target Rule")
 assert(renamed.name == "Target Rule" and api.GetRules()[3].name == "Shared Default",
     "focus-loss commit renamed the wrong rule")
 rows["Edit rule"].set("1")
 assert(rows["Rule name"].get() == "Target Rule", "rename lost after page rebuild")
 rows["Move Rule Down"].click(); Flush()
-assert(rows["Edit rule"].values["2"] == "2 of 3 - Target Rule" and api.GetRules()[2] == renamed)
+assert(rows["Edit rule"].values["2"] == "[2] Target Rule" and api.GetRules()[2] == renamed)
 rows["Move Rule Up"].click(); Flush()
-assert(rows["Edit rule"].values["1"] == "1 of 3 - Target Rule" and api.GetRules()[1] == renamed)
+assert(rows["Edit rule"].values["1"] == "[1] Target Rule" and api.GetRules()[1] == renamed)
 
 EllesmereUI.IsSearchPrebuild = function() return true end
 spec.modules[1].buildPage("Rules", {}, 0)
@@ -757,7 +821,7 @@ assert(deleteConfirm and deleteConfirm.title == "Delete Nameplate Rule?"
     and deleteConfirm.cancelText == "Keep Rule", "rule delete confirmation wasn't shown")
 deleteConfirm.onConfirm()
 Flush()
-assert(rows["Edit rule"].values["1"] == "1 of 1 - Late replacement", "delete must update position and total")
+assert(rows["Edit rule"].values["1"] == "[1] Late replacement", "delete must update priority")
 
 -- Cast styling is opt-in, including on existing saved rules.
 assert(rows["Override cast bar"].get() == false)

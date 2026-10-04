@@ -241,6 +241,13 @@ local function BuildRulesPage(parent, yOffset)
     local rule, selected = GetRule()
     local barTextureValues, barTextureOrder = GetBarTextureOptions()
 
+    _, h = W:SectionHeader(parent, "RULE STYLING", y); y = y - h
+    _, h = W:Toggle(parent, "Enable rule styling", y,
+        function() return DB().enabled ~= false end,
+        function(value) DB().enabled = value; Changed() end,
+        "Enable or disable all rule styling in the active profile. Turning this off restores EUI appearance without deleting rules, changing their individual enabled settings, or preventing editing.")
+    y = y - h
+
     -- Search stores exact section names on first indexing. Keep them stable;
     -- the selector and name field below show the current rule's context.
     _, h = W:SectionHeader(parent, "RULE ORDER", y)
@@ -248,8 +255,7 @@ local function BuildRulesPage(parent, yOffset)
     local labels, order = {}, {}
     for i, item in ipairs(db.rules) do
         local key = tostring(i)
-        labels[key] = ("%d of %d - %s%s"):format(i, #db.rules,
-            item.enabled == false and "Off - " or "", item.name or ("Rule " .. i))
+        labels[key] = ("[%d] %s"):format(i, item.name or ("Rule " .. i))
         order[#order + 1] = key
     end
     _, h = W:Dropdown(parent, "Edit rule", y, labels,
@@ -606,14 +612,43 @@ local function BuildAboutPage(parent, yOffset)
     local W = EllesmereUI.Widgets
     local y = yOffset
     local _, h
-    _, h = W:SectionHeader(parent, "HOW RULES WORK", y); y = y - h
-    _, h = W:Toggle(parent, "Enable rule styling", y,
-        function() return DB().enabled ~= false end,
-        function(value) DB().enabled = value; Changed() end,
-        "Turn off all rules without deleting them.")
-    y = y - h
-    _, h = W:SectionHeader(parent, "DETECTION", y); y = y - h
-    _, h = W:SectionHeader(parent, "CONDITIONS AND PRIORITY", y); y = y - h
+    local function Paragraph(text)
+        local row, height = W:Spacer(parent, y, 56)
+        if not EllesmereUI.IsSearchPrebuild() then
+            local PP = EllesmereUI.PanelPP
+            local pad = EllesmereUI.CONTENT_PAD + 20
+            local label = EllesmereUI.MakeFont(row, 13, nil, 1, 1, 1, 0.8)
+            PP.Point(label, "TOPLEFT", row, "TOPLEFT", pad, -8)
+            label:SetWidth(math.max(100, parent:GetWidth() - pad * 2))
+            label:SetJustifyH("LEFT")
+            label:SetWordWrap(true)
+            local displayText = EllesmereUI.L(text)
+            label:SetText(displayText)
+            height = math.ceil(label:GetStringHeight()) + 20
+            PP.Size(row, parent:GetWidth(), height)
+            -- Informational rows are searchable text, rather than blank spacers.
+            row._isSpacer = nil
+            row._labelText = text
+            row._labelTextLoc = displayText ~= text and displayText or nil
+        end
+        y = y - height
+    end
+    local function Section(title, text)
+        _, h = W:SectionHeader(parent, title, y); y = y - h
+        Paragraph(text)
+    end
+    local version
+    local getMetadata = (C_AddOns and C_AddOns.GetAddOnMetadata) or GetAddOnMetadata
+    if type(getMetadata) == "function" then version = getMetadata(PLUGIN_ID, "Version") end
+    local versionText = type(version) == "string" and version ~= "" and ("Version " .. version .. ". ") or ""
+    Section("NAMEPLATE EXTRAS", versionText ..
+        "Adds customizable, rule-based styling to EllesmereUI Nameplates so important units and casts stand out. Requires EllesmereUI and EllesmereUI Nameplates.")
+    Section("CUSTOM APPEARANCE",
+        "Adjust nameplate size and opacity, health-bar colors and textures, and borders. Apply styles based on unit type, reaction, classification, quest objectives, targets and casts.")
+    Section("CAST COLORS",
+        "Customize cast-bar appearance, including separate colors for interruptible casts, interrupts on cooldown and uninterruptible casts.")
+    Section("PROFILES AND SHARING",
+        "Save profiles for different characters and export or import your rules. Use Enable rule styling on the Rules page to pause all styling without deleting your setup.")
     _, h = W:Button(parent, "Open Nameplate Style Rules", y, function()
         EllesmereUI.OpenPlugin(PLUGIN_ID, "NameplateStyle", "Rules")
     end); y = y - h

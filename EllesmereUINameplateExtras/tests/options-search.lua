@@ -36,7 +36,9 @@ local spec, currentSection, pageRows, index, fields = nil, nil, {}, {}, {}
 local searchEntries
 local parent = CreateFrame("Frame") -- GlobalSearch also passes a real wrapper, not an absorber parent.
 local function UpdateIndex()
-    for _, entry in ipairs(searchEntries) do index[entry.label] = entry end
+    for _, entry in ipairs(searchEntries) do
+        if entry.page == "Rules" then index[entry.label] = entry end
+    end
 end
 local function Register(label, tooltip, section)
     EllesmereUI._RegisterSearchEntry(label, nil, tooltip, "plugin:test:NameplateStyle", "Rules",
@@ -164,7 +166,7 @@ end
 EllesmereUI.RefreshPage = Build
 assert(loadfile("EllesmereUINameplateExtras/EllesmereUINameplateExtras_Options.lua"))()
 searchNS.modules["plugin:test:NameplateStyle"] = {
-    pages = { "Rules" }, buildPage = spec.modules[1].buildPage,
+    pages = { "Rules", "About" }, buildPage = spec.modules[1].buildPage,
 }
 
 local actions = { "Add Rule", "Copy Rule", "Delete Rule", "Move Rule Up", "Move Rule Down" }
@@ -185,6 +187,15 @@ local function PrebuildTest()
     assert(#refreshes == 1 and refreshes[1] == previousPageRefresh,
         "prebuild leaked refresh callbacks or lost the prior live page's registry")
     assert(EllesmereUI.Widgets == W and not EllesmereUI._prebuilding, "prebuild state not restored")
+    assert(index["Enable rule styling"] and index["Enable rule styling"].section == "RULE STYLING",
+        "global styling toggle must be indexed on Rules")
+    local aboutIndexed = false
+    for _, entry in ipairs(searchEntries) do
+        assert(not (entry.page == "About" and entry.label == "Enable rule styling"),
+            "global toggle is still indexed on About")
+        if entry.page == "About" and entry.label == "CAST COLORS" then aboutIndexed = true end
+    end
+    assert(aboutIndexed, "About sections must be indexed without creating live paragraph controls")
     refreshes = {}
     for _, label in ipairs({ "Unit type", "Reaction", "Classification", "Target state", "Cast state",
         "Spell school", "Quest Objective", "Nameplate size (%)", "Opacity (%)", "Health-bar texture",
@@ -232,7 +243,7 @@ local function SectionsTest()
     end
     assert(fields["Rule name"].get() == "Renamed second rule", "selected rule context missing")
     assert(fields["Edit rule"].values["2"]:find("Renamed second rule", 1, true), "selector context stale")
-    assert(fields["Edit rule"].values["2"]:find("2 of 2", 1, true), "rule position context missing")
+    assert(fields["Edit rule"].values["2"] == "[2] Renamed second rule", "rule priority/name format incorrect")
     print("PASS sections: first-indexed exact destinations survive selection and rename; current name/position visible")
 end
 local function ActionsTest()
