@@ -22,20 +22,6 @@ local SCHOOL_ORDER = { "any", "physical", "holy", "fire", "nature", "frost", "sh
 
 local CUSTOM_CAST_STATES = { interruptible = true, interruptOnCD = true, uninterruptible = true }
 local CUSTOM_CAST_STYLE_TIP = "Enable EUI or Classic WoW UI nameplate style and reload the UI to use this cast-color state."
-local function CustomNameplateStyleEnabled()
-    local np = _G.EllesmereNameplates_NS
-    if not np then return false end
-    -- Use the latched rendering style, not a profile change awaiting reload.
-    if type(np.NP_Style) == "function" then
-        local style = np.NP_Style()
-        return style == "eui" or style == "classic"
-    end
-    if type(np._npStyle) == "string" then return np._npStyle == "eui" or np._npStyle == "classic" end
-    local profile = np.db and np.db.profile
-    -- Classic takes precedence if both flags are set, matching NP_Style.
-    return not profile or profile.useClassicStyle == true or not profile.useBlizzardStyle
-end
-
 local function GetBarTextureOptions()
     local np = _G.EllesmereNameplates_NS
     local names = np and np.healthBarTextureNames or {}
@@ -381,7 +367,7 @@ local function BuildRulesPage(parent, yOffset)
             if value ~= "any" then
                 local item = { key = value, label = values[value] }
                 if key == "castState" and CUSTOM_CAST_STATES[value] then
-                    item.lockedFn = function() return not CustomNameplateStyleEnabled() end
+                    item.lockedFn = function() return not addon.SupportsCastColorStates() end
                     item.lockedTooltip = CUSTOM_CAST_STYLE_TIP
                 end
                 items[#items + 1] = item
@@ -400,7 +386,7 @@ local function BuildRulesPage(parent, yOffset)
             emptyLabel = values.any,
             getSelected = function(option) return GetSelection()[option] == true end,
             setSelected = function(option, selected)
-                if key == "castState" and CUSTOM_CAST_STATES[option] and not CustomNameplateStyleEnabled() then return end
+                if key == "castState" and CUSTOM_CAST_STATES[option] and not addon.SupportsCastColorStates() then return end
                 local current = GetRule()
                 local value = GetSelection()
                 current.conditions[key] = value

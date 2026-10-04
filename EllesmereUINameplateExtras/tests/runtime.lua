@@ -176,7 +176,8 @@ assert(EllesmereUINameplateExtrasDB == nil, "new SavedVariables initialized befo
 local api = EllesmereUINameplateExtras
 assert(api, "public API missing")
 if ... == "traits" then
-    return { api = api, namespace = namespace, mocks = traitMocks, secret = secretValue }
+    return { api = api, namespace = namespace, mocks = traitMocks, secret = secretValue,
+        plate = plate, frames = frames, Flush = Flush, Fire = Fire }
 end
 
 -- Model the fresh Extras SavedVariables loading after addon chunks execute.

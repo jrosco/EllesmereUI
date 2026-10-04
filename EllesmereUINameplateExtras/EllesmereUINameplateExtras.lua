@@ -282,6 +282,10 @@ local states = setmetatable({}, { __mode = "k" })
 local hooked = setmetatable({}, { __mode = "k" })
 local spellSchools = {}
 local combatLogActive = false
+local snapshotState
+local watchCastTransitions = false
+local pendingPlates = setmetatable({}, { __mode = "k" })
+local refreshAllQueued, checkTransitionsQueued = false, false
 
 local function TryRegisterEvent(frame, event)
     local ok, registered = pcall(frame.RegisterEvent, frame, event)
@@ -426,7 +430,7 @@ local function ReadCast(unit, includeDebug)
     return castState, interruptible, GetSchool(spellID), debugInfo
 end
 
-local function KnownCastColorState(interruptible)
+local function ReadKnownCastColorState(interruptible)
     if interruptible == "uninterruptible" then return "uninterruptible" end
     if interruptible ~= "interruptible" then return "unknown" end
     local getKick = EllesmereUI and EllesmereUI.GetActiveKickSpell
@@ -438,6 +442,16 @@ local function KnownCastColorState(interruptible)
     local ready = SafeBool(cooldown:IsZero())
     if ready == nil then return "unknown" end
     return ready and "interruptible" or "interruptOnCD"
+end
+
+local function KnownCastColorState(interruptible)
+    local value = ReadKnownCastColorState(interruptible)
+    -- Capture the actual ordinary-rule snapshot, not a second API read after
+    -- applying it. Direct FindRule/diagnostic calls must not advance this cache.
+    if snapshotState and snapshotState.castColorSnapshot == nil then
+        snapshotState.castColorSnapshot = value
+    end
+    return value
 end
 
 local function GetTraits(unit, checkQuestObjective)
@@ -513,8 +527,22 @@ local function IsCastColorState(value)
     return value == "interruptible" or value == "interruptOnCD" or value == "uninterruptible"
 end
 
-local function Matches(rule, unit, traits, forCastColors)
-    if not rule.enabled then return false end
+local function SupportsCastColorStates()
+    local np = _G.EllesmereNameplates_NS
+    if not np then return false end
+    -- The rendered style is reload-latched; pending profile flags cannot override it.
+    if type(np.NP_Style) == "function" then
+        local style = np.NP_Style()
+        return style == "eui" or style == "classic"
+    end
+    if type(np._npStyle) == "string" then return np._npStyle == "eui" or np._npStyle == "classic" end
+    local profile = np.db and np.db.profile
+    -- Older engines have no latch/accessor. Match their Classic-first default.
+    return not profile or profile.useClassicStyle == true or not profile.useBlizzardStyle
+end
+addon.SupportsCastColorStates = SupportsCastColorStates
+
+local function MatchesReadableConditions(rule, unit, traits)
     local c = rule.conditions or {}
     if not AnySelectionMatches(c.unitType, function(value)
         if value == "creature" then return traits.isCreature == true end
@@ -530,15 +558,6 @@ local function Matches(rule, unit, traits, forCastColors)
     end
     if c.questObjective == "yes" and traits.questObjective ~= true then return false end
     if c.questObjective == "no" and traits.questObjective ~= false then return false end
-    if not AnySelectionMatches(c.castState, function(value)
-        if value == "casting" then
-            return type(traits.castState) == "string" and traits.castState ~= "none"
-        elseif IsCastColorState(value) then
-            if forCastColors then return traits.castState ~= "none" end
-            return traits.castColorState == value
-        end
-        return traits.castState == value
-    end) then return false end
     if not AnySelectionMatches(c.spellSchool, function(value)
         return traits.castState ~= "none" and value == traits.spellSchool
     end) then
@@ -557,6 +576,33 @@ local function Matches(rule, unit, traits, forCastColors)
     return true
 end
 
+local function MatchesWithSnapshot(rule, unit, traits, forCastColors, snapshot)
+    if not rule.enabled then return false end
+    local c = rule.conditions or {}
+    -- Each path gates cast eligibility separately, before any custom callback.
+    -- Ordinary failure on a hidden color state must not poison native colors.
+    if not AnySelectionMatches(c.castState, function(value)
+        if value == "casting" then
+            return type(traits.castState) == "string" and traits.castState ~= "none"
+        elseif IsCastColorState(value) then
+            if forCastColors then return traits.castState ~= "none" end
+            return traits.castColorState == value
+        end
+        return traits.castState == value
+    end) then return false end
+    if not snapshot then return MatchesReadableConditions(rule, unit, traits) end
+    local results = snapshot[unit]
+    if not results then results = {}; snapshot[unit] = results end
+    if results[rule] == nil then
+        results[rule] = MatchesReadableConditions(rule, unit, traits)
+    end
+    return results[rule]
+end
+
+local function Matches(rule, unit, traits, forCastColors)
+    return MatchesWithSnapshot(rule, unit, traits, forCastColors)
+end
+
 local function CastColorMask(selection, traits)
     local mask = {}
     local function Selected(key)
@@ -568,19 +614,24 @@ local function CastColorMask(selection, traits)
             or (Selected("empowered") and traits.castState == "empowered")
             or (Selected("none") and traits.castState == "none")
     end
-    for _, key in ipairs(CAST_COLOR_STATES) do mask[key] = broad or Selected(key) end
+    -- Broad selections remain generic tints, including mixed broad/state choices.
+    -- Unsupported state-only selections contribute nothing; never rewrite saved choices.
+    local supportsStates = SupportsCastColorStates()
+    for _, key in ipairs(CAST_COLOR_STATES) do mask[key] = broad or (supportsStates and Selected(key)) end
     return mask
 end
 addon.CastColorMask = CastColorMask
 
-local function FindCastColorOverrides(unit, traits)
+local function FindCastColorOverridesWithSnapshot(unit, traits, snapshot)
     local settings = GetSettings()
     local colors = {}
     if settings.enabled == false then return colors end
     traits = traits or GetTraits(unit, true)
+    local matches = snapshot and MatchesWithSnapshot or Matches
     for index, rule in ipairs(settings.rules) do
         local style = rule.style
-        if style and style.castEnabled and style.castColorEnabled and Matches(rule, unit, traits, true) then
+        if style and style.castEnabled and style.castColorEnabled
+           and matches(rule, unit, traits, true, snapshot) then
             local mask = CastColorMask(rule.conditions and rule.conditions.castState, traits)
             local candidate = { rule = rule, style = style, index = index }
             for _, key in ipairs(CAST_COLOR_STATES) do
@@ -591,9 +642,12 @@ local function FindCastColorOverrides(unit, traits)
     end
     return colors
 end
+local function FindCastColorOverrides(unit, traits)
+    return FindCastColorOverridesWithSnapshot(unit, traits)
+end
 addon.FindCastColorOverrides = FindCastColorOverrides
 
-local function FindRule(unit)
+local function FindRuleWithSnapshot(unit, snapshot)
     GetSettings()
     if db.enabled == false then return nil end
     local checkQuestObjective = false
@@ -606,10 +660,15 @@ local function FindRule(unit)
         end
     end
     local traits = GetTraits(unit, checkQuestObjective)
+    local matches = snapshot and MatchesWithSnapshot or Matches
     for index, rule in ipairs(db.rules) do
-        if Matches(rule, unit, traits) then return rule, index, traits end
+        if matches(rule, unit, traits, false, snapshot) then return rule, index, traits end
     end
     return nil, nil, traits
+end
+
+local function FindRule(unit)
+    return FindRuleWithSnapshot(unit)
 end
 
 local function UpdateCombatLogRegistration()
@@ -691,8 +750,10 @@ local function ApplyStyle(plate)
         state.unit = unit
         state.hadColor, state.hadTexture = nil, nil
     end
-    local rule, _, traits = FindRule(unit)
-    local castColors = FindCastColorOverrides(unit, traits)
+    -- Never retain evaluation results on a plate or across rendering refreshes.
+    local snapshot = {}
+    local rule, _, traits = FindRuleWithSnapshot(unit, snapshot)
+    local castColors = FindCastColorOverridesWithSnapshot(unit, traits, snapshot)
     rule = rule and rule or nil
     if not rule then ResetStyle(plate, state, false, castColors); return end
     local style = rule.style or {}
@@ -740,29 +801,102 @@ end
 
 local InstallHooks
 
+local function ApplyPlateSafely(plate)
+    local state = GetState(plate)
+    local previousSnapshotState = snapshotState
+    state.castColorSnapshot = nil
+    state.snapshotUnit = plate.unit
+    snapshotState = state
+    local ok, err = pcall(ApplyStyle, plate)
+    snapshotState = previousSnapshotState
+    if not ok then
+        state.castColorSnapshot = nil
+        local report = geterrorhandler and geterrorhandler()
+        if report then report(err) end
+    end
+end
+
+local function UpdateCastTransitionTracking()
+    watchCastTransitions = false
+    if db.enabled == false then return end
+    for _, rule in ipairs(db.rules) do
+        local selection = rule.conditions and rule.conditions.castState
+        if rule.enabled ~= false and (selection == "interruptible" or selection == "interruptOnCD"
+            or selection == "uninterruptible" or (type(selection) == "table"
+            and (selection.interruptible or selection.interruptOnCD or selection.uninterruptible))) then
+            watchCastTransitions = true
+            return
+        end
+    end
+end
+
+local function ReadPlateCastColorState(unit)
+    local _, interruptible = ReadCast(unit)
+    return ReadKnownCastColorState(interruptible)
+end
+
+local function CheckCastTransition(plate)
+    if not watchCastTransitions or GetSettings().enabled == false then return end
+    local state = states[plate]
+    if not state or not plate.unit or state.snapshotUnit ~= plate.unit
+        or state.castColorSnapshot == nil then return end
+    local ok, value = pcall(ReadPlateCastColorState, plate.unit)
+    if not ok then value = "unknown" end
+    if value ~= state.castColorSnapshot then
+        -- Do not advance the snapshot until rules have actually been applied.
+        pendingPlates[plate] = plate.unit
+        return true
+    end
+end
+
 local function RefreshAll()
     GetSettings()
     if not NP then NP = _G.EllesmereNameplates_NS end
     if not NP then return end
     if InstallHooks then InstallHooks() end
     UpdateCombatLogRegistration()
-    local report = geterrorhandler and geterrorhandler()
-    local function ApplySafely(plate)
-        local ok, err = pcall(ApplyStyle, plate)
-        if not ok and report then report(err) end
-    end
-    for _, plate in pairs(NP.plates or {}) do ApplySafely(plate) end
-    for _, plate in pairs(NP.friendlyPlates or {}) do ApplySafely(plate) end
+    UpdateCastTransitionTracking()
+    for _, plate in pairs(NP.plates or {}) do ApplyPlateSafely(plate) end
+    for _, plate in pairs(NP.friendlyPlates or {}) do ApplyPlateSafely(plate) end
 end
 
-QueueRefresh = function()
+local function ScheduleRefresh()
     if queued then return end
     queued = true
     C_Timer.After(0, function()
         queued = false
-        if InstallHooks then InstallHooks() end
-        RefreshAll()
+        local all, check = refreshAllQueued, checkTransitionsQueued
+        refreshAllQueued, checkTransitionsQueued = false, false
+        if all then
+            pendingPlates = setmetatable({}, { __mode = "k" })
+            RefreshAll()
+            return
+        end
+        if check and watchCastTransitions and GetSettings().enabled ~= false then
+            -- EUI already maintains the active-cast set. Older engines use the
+            -- installed plate states, still applying only changed snapshots.
+            for plate in pairs((NP and NP._castingPlates) or states) do
+                CheckCastTransition(plate)
+            end
+        end
+        local pending = pendingPlates
+        pendingPlates = setmetatable({}, { __mode = "k" })
+        for plate, unit in pairs(pending) do
+            if plate.unit == unit then ApplyPlateSafely(plate) end
+        end
     end)
+end
+
+QueueRefresh = function()
+    refreshAllQueued = true
+    ScheduleRefresh()
+end
+
+local function QueueCastTransitionCheck()
+    if not watchCastTransitions or GetSettings().enabled == false then return end
+    if NP and NP._castingPlates and next(NP._castingPlates) == nil then return end
+    checkTransitionsQueued = true
+    ScheduleRefresh()
 end
 
 local function InstallPlateHooks(plate)
@@ -805,8 +939,16 @@ local function InstallPlateHooks(plate)
     end)
     if type(plate.ClearUnit) == "function" then
         hooksecurefunc(plate, "ClearUnit", function(self)
+            pendingPlates[self] = nil
+            state.castColorSnapshot, state.snapshotUnit = nil, nil
             ResetStyle(self, state, true)
             state.unit = nil
+        end)
+    end
+    if type(plate.ApplyCastColor) == "function" then
+        hooksecurefunc(plate, "ApplyCastColor", function(self)
+            if snapshotState then return end
+            if CheckCastTransition(self) then ScheduleRefresh() end
         end)
     end
     local methods = { "SetUnit", "ApplyAppearance", "ApplyScale", "UpdateHealthColor", "UpdateCast" }
@@ -843,6 +985,7 @@ local events = {
     "UNIT_SPELLCAST_INTERRUPTED", "UNIT_SPELLCAST_CHANNEL_START", "UNIT_SPELLCAST_CHANNEL_UPDATE", "UNIT_SPELLCAST_CHANNEL_STOP",
     "UNIT_SPELLCAST_EMPOWER_START", "UNIT_SPELLCAST_EMPOWER_UPDATE", "UNIT_SPELLCAST_EMPOWER_STOP",
     "UNIT_SPELLCAST_INTERRUPTIBLE", "UNIT_SPELLCAST_NOT_INTERRUPTIBLE",
+    "SPELL_UPDATE_COOLDOWN", "SPELL_UPDATE_USABLE", "SPELLS_CHANGED", "UNIT_PET",
 }
 for _, event in ipairs(events) do TryRegisterEvent(unitFrame, event) end
 unitFrame:SetScript("OnEvent", function(_, event, loadedAddon)
@@ -858,6 +1001,22 @@ unitFrame:SetScript("OnEvent", function(_, event, loadedAddon)
             if schoolName ~= "unknown" then
                 spellSchools[spellID] = schoolName
                 QueueRefresh()
+            end
+        end
+        return
+    elseif event == "SPELL_UPDATE_COOLDOWN" or event == "SPELL_UPDATE_USABLE"
+        or event == "SPELLS_CHANGED" or event == "UNIT_PET" then
+        if event == "UNIT_PET" and loadedAddon ~= "player" then return end
+        -- Run after all listeners so EUI's active kick lookup is up to date.
+        QueueCastTransitionCheck()
+        return
+    elseif event == "UNIT_SPELLCAST_INTERRUPTIBLE" or event == "UNIT_SPELLCAST_NOT_INTERRUPTIBLE" then
+        for plate in pairs(states) do
+            if plate.unit and plate.unit == loadedAddon then
+                -- Preserve event-driven custom predicates too, but reevaluate
+                -- only the affected unit instead of every visible plate.
+                pendingPlates[plate] = plate.unit
+                ScheduleRefresh()
             end
         end
         return
@@ -892,6 +1051,7 @@ local publicAPI = {
     RegisterSpellSchool = addon.RegisterSpellSchool,
     NormalizeRuleConditions = NormalizeRuleConditions,
     ValidateRuleConditions = ValidateRuleConditions,
+    SupportsCastColorStates = SupportsCastColorStates,
     GetSettings = GetSettings,
     GetRules = function() return GetSettings().rules end,
     GetProfileInfo = ProfileInfo,
