@@ -18,7 +18,7 @@ end
 EllesmereNameplates_NS.plates = { nameplate1 = plate }
 EllesmereNameplates_NS._castingPlates = { [plate] = true }
 local ready, hiddenReady, haveCooldown, knownKick = false, true, true, true
-EllesmereUI = {}
+EllesmereUI = assert(loadfile("EllesmereUINameplateExtras/tests/border-mocks.lua"))()
 UnitGUID = function() return nil end
 UnitClassBase = function() return "MAGE" end
 IsSpellKnown = function() return knownKick end

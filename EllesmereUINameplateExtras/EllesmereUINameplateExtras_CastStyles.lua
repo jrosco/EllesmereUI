@@ -187,33 +187,6 @@ function addon.ApplyCastStyle(plate, style, conditions, castColors)
     if overlayEntry then PaintColor(plate, state, overlay, overlayEntry) end
     ApplyOpacity(plate, state)
 
-    local borderSize = style and style.castBorderEnabled
-        and math.max(0, math.min(8, tonumber(style.castBorderSize) or defaults.castBorderSize)) or 0
-    if borderSize == 0 then
-        if state.border then state.border:Hide() end
-        return
-    end
-    if not state.border then
-        -- Parenting to the cast also follows EUI's optional lifted cast container.
-        state.border = CreateFrame("Frame", nil, cast)
-        state.border:SetAllPoints(cast)
-        state.edges = {}
-        for i = 1, 4 do state.edges[i] = state.border:CreateTexture(nil, "OVERLAY") end
-    end
-    local border = state.border
-    border:SetFrameLevel(cast:GetFrameLevel() + 5)
-    local top, bottom, left, right = unpack(state.edges)
-    top:ClearAllPoints(); top:SetPoint("TOPLEFT", border, "TOPLEFT", -borderSize, borderSize)
-    top:SetPoint("TOPRIGHT", border, "TOPRIGHT", borderSize, borderSize); top:SetHeight(borderSize)
-    bottom:ClearAllPoints(); bottom:SetPoint("BOTTOMLEFT", border, "BOTTOMLEFT", -borderSize, -borderSize)
-    bottom:SetPoint("BOTTOMRIGHT", border, "BOTTOMRIGHT", borderSize, -borderSize); bottom:SetHeight(borderSize)
-    left:ClearAllPoints(); left:SetPoint("TOPLEFT", border, "TOPLEFT", -borderSize, 0)
-    left:SetPoint("BOTTOMLEFT", border, "BOTTOMLEFT", -borderSize, 0); left:SetWidth(borderSize)
-    right:ClearAllPoints(); right:SetPoint("TOPRIGHT", border, "TOPRIGHT", borderSize, 0)
-    right:SetPoint("BOTTOMRIGHT", border, "BOTTOMRIGHT", borderSize, 0); right:SetWidth(borderSize)
-    local color = style.castBorderColor or defaults.castBorderColor
-    for _, edge in ipairs(state.edges) do edge:SetColorTexture(color.r, color.g, color.b, 1) end
-    border:Show()
 end
 
 local NP = EllesmereNameplates_NS

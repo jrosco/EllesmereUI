@@ -10,6 +10,11 @@
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
 
 EllesmereUINameplateExtras.lua
+EllesmereUINameplateExtras_Borders.lua
+EllesmereUINameplateExtras_Glows.lua
+EllesmereUINameplateExtras_Scaling.lua
+EllesmereUINameplateExtras_TargetArrows.lua
 EllesmereUINameplateExtras_CastStyles.lua
 EllesmereUINameplateExtras_RuleIO.lua
+EllesmereUINameplateExtras_Preview.lua
 EllesmereUINameplateExtras_Options.lua

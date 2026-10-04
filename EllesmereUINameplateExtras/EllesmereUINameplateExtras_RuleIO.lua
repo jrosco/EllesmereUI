@@ -21,11 +21,18 @@ end
 local BOOLEAN_STYLE_KEYS = {
     "healthEnabled", "healthColorEnabled", "borderEnabled", "castEnabled",
     "castColorEnabled", "castOpacityEnabled", "castBorderEnabled",
+    "targetArrowsEnabled",
+    "healthGlowBackground", "castGlowBackground",
 }
-local COLOR_STYLE_KEYS = { "healthColor", "borderColor", "castColor", "castBorderColor" }
+local COLOR_STYLE_KEYS = { "healthColor", "borderColor", "castColor", "castBorderColor",
+    "healthGlowColor", "castGlowColor", "healthGlowBackgroundColor", "castGlowBackgroundColor" }
 local NUMBER_STYLE_RANGES = {
     scale = { 50, 200 }, opacity = { 0, 100 }, borderSize = { 0, 8 },
     castOpacity = { 0, 100 }, castBorderSize = { 0, 8 },
+    healthGlowLines = { 2, 16 }, castGlowLines = { 2, 16 },
+    healthGlowThickness = { 1, 4 }, castGlowThickness = { 1, 4 },
+    healthGlowSpeed = { 1, 8 }, castGlowSpeed = { 1, 8 },
+    healthGlowShineSize = { 50, 200 }, castGlowShineSize = { 50, 200 },
 }
 
 local function IsFinite(value)
@@ -61,6 +68,22 @@ local function ValidateRule(rule, index)
     end
     local validConditions, invalidKey = api.ValidateRuleConditions(rule.conditions)
     if not validConditions then return nil, ("Rule %d has an invalid %s condition."):format(index, invalidKey) end
+    for _, key in ipairs({ "healthGlowStyle", "castGlowStyle" }) do
+        if api.ValidateRuleGlowStyle and not api.ValidateRuleGlowStyle(rule.style[key]) then
+            return nil, ("Rule %d has an invalid %s setting."):format(index, key)
+        end
+    end
+    if api.ValidateScaleElements and not api.ValidateScaleElements(rule.style.scaleElements) then
+        return nil, ("Rule %d has an invalid scale-elements setting."):format(index)
+    end
+    for _, key in ipairs({ "borderTexture", "castBorderTexture" }) do
+        if api.ValidateBorderStyle and not api.ValidateBorderStyle(rule.style[key]) then
+            return nil, ("Rule %d has an invalid %s border texture."):format(index, key)
+        end
+    end
+    if api.ValidateTargetArrowStyle and not api.ValidateTargetArrowStyle(rule.style.targetArrowStyle) then
+        return nil, ("Rule %d has an invalid target-arrow style."):format(index)
+    end
     for _, key in ipairs(BOOLEAN_STYLE_KEYS) do
         local value = rule.style[key]
         if value ~= nil and type(value) ~= "boolean" then
@@ -169,7 +192,10 @@ function api.ImportRuleSet(code)
     end
     local settings = api.GetSettings()
     settings.rules = Copy(rules)
-    for _, rule in ipairs(settings.rules) do api.NormalizeRuleConditions(rule) end
+    for _, rule in ipairs(settings.rules) do
+        api.NormalizeRuleConditions(rule)
+        if api.NormalizeScaleElements then rule.style.scaleElements = api.NormalizeScaleElements(rule.style.scaleElements) end
+    end
     settings.selectedRule = 1
     api.Refresh()
     return true

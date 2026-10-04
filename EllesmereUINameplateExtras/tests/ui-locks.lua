@@ -24,9 +24,10 @@ EllesmereUI:RefreshPage()
 local dropdowns = { "Unit type", "Reaction", "Classification", "Target state", "Cast state", "Spell school", "Threat" }
 local actions = { "Add Rule", "Copy Rule", "Delete Rule", "Move Rule Up", "Move Rule Down" }
 local settings = { "Rule name", "Quest Objective", "Nameplate size (%)", "Opacity (%)", "Override health bar",
-    "Custom health color", "Health-bar color", "Health-bar texture", "Additional health border",
+    "Custom health color", "Health-bar color", "Health-bar texture", "Override health border", "Health border texture",
     "Health border color", "Health border size", "Override cast bar", "Custom cast color", "Cast fill color",
-    "Cast-bar texture", "Custom cast opacity", "Cast opacity (%)", "Additional cast border", "Cast border color", "Cast border size" }
+    "Cast-bar texture", "Custom cast opacity", "Cast opacity (%)", "Override cast border", "Cast border texture", "Cast border color", "Cast border size",
+    "Override target arrows", "Target-arrow style", "Health border glow", "Health glow color", "Cast border glow", "Cast glow color" }
 local function Locks(expected, label)
     for _, name in ipairs(settings) do
         if expected then

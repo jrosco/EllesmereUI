@@ -16,9 +16,12 @@ end
 function issecretvalue(value)
     return value == secretValue or (traitMocks.secretBoolean == true and value == true)
 end
-function CreateFrame(kind, _, parentFrame)
+function CreateFrame(kind, _, parentFrame, template)
+    if template == "DisableUntrustedLayoutScriptsTemplate" and traitMocks.unsupportedArrowTemplate then
+        error("template unavailable on this client")
+    end
     assert(parentFrame == nil or rawget(parentFrame, "nativeFrame"), "native UI parent required")
-    local frame = { nativeFrame = true, events = {}, scripts = {}, scale = 1, alpha = 1, kind = kind, parent = parentFrame,
+    local frame = { nativeFrame = true, events = {}, scripts = {}, scale = 1, alpha = 1, kind = kind, parent = parentFrame, template = template,
         vertexColor = { 1, 1, 1, 1 } }
     function frame:RegisterEvent(event) self.events[event] = true end
     function frame:UnregisterEvent(event) self.events[event] = nil end
@@ -27,7 +30,17 @@ function CreateFrame(kind, _, parentFrame)
     function frame:SetScale(value) self.scale = value end
     function frame:GetAlpha() return self.alpha end
     function frame:GetParent() return self.parent end
+    function frame:SetParent(parent) self.parent = parent end
+    function frame:SetIgnoreParentScale(value) self.ignoreParentScale = value end
+    function frame:IsIgnoringParentScale() return self.ignoreParentScale == true end
+    function frame:GetEffectiveScale()
+        local inherited = not self.ignoreParentScale and self.parent and self.parent:GetEffectiveScale() or 1
+        return self.scale * inherited
+    end
     function frame:SetAlpha(value) self.alpha = value end
+    function frame:SetAlphaFromBoolean(value, yes, no)
+        if value == secretValue then self.alpha = secretValue else self.alpha = value and (yes or 1) or (no or 0) end
+    end
     function frame:GetFrameStrata() return "MEDIUM" end
     function frame:GetFrameLevel() return 10 end
     function frame:GetWidth() return self.width or 800 end
@@ -38,6 +51,19 @@ function CreateFrame(kind, _, parentFrame)
         frame[method] = Noop
     end
     function frame:CreateTexture() return CreateFrame("Texture", nil, self) end
+    function frame:SetMinMaxValues(min, max) self.min, self.max = min, max end
+    function frame:SetValue(value) self.value = value end
+    function frame:SetStatusBarTexture(path)
+        self.fill = self.fill or self:CreateTexture()
+        self.fill:SetTexture(path)
+    end
+    function frame:GetStatusBarTexture() return self.fill end
+    function frame:SetStatusBarColor(...) self.color = { ... } end
+    function frame:GetStatusBarColor() return unpack(self.color) end
+    function frame:SetColorTexture(...) self.color = { ... } end
+    function frame:SetFont(path, size, flags) self.fontPath, self.fontSize, self.fontFlags = path, size, flags; return true end
+    function frame:SetHeight(value) self.height = value end
+    function frame:SetWidth(value) self.width = value end
     function frame:SetAllPoints(other) self.allPoints = other end
     function frame:EnableMouse(value) self.mouseEnabled = value end
     function frame:CreateFontString()
@@ -57,16 +83,32 @@ function CreateFrame(kind, _, parentFrame)
     function frame:GetTexture() return self.texture end
     function frame:GetVertexColor() return unpack(self.vertexColor) end
     function frame:SetVertexColor(r, g, b, a) self.vertexColor = { r, g, b, a or 1 } end
-    function frame:Show() self.shown = true end
-    function frame:Hide() self.shown = false end
+    function frame:Show()
+        local was = self.shown ~= false
+        self.shown = true
+        if not was and self.scripts.OnShow then self.scripts.OnShow(self) end
+    end
+    function frame:Hide()
+        local was = self.shown ~= false
+        self.shown = false
+        if was and self.scripts.OnHide then self.scripts.OnHide(self) end
+    end
+    function frame:IsShown() return self.shown == true end
+    function frame:IsVisible()
+        if self.shown == false then return false end
+        return not self.parent or self.parent:IsVisible()
+    end
+    function frame:SetShown(value) if value then self:Show() else self:Hide() end end
     frames[#frames + 1] = frame
     return frame
 end
 function hooksecurefunc(object, method, callback)
     local original = assert(object[method], method)
+    local function Pack(...) return { n = select("#", ...), ... } end
     object[method] = function(...)
-        original(...)
+        local result = Pack(original(...))
         callback(...)
+        return unpack(result, 1, result.n)
     end
 end
 C_Timer = { After = function(_, callback) timers[#timers + 1] = callback end }
@@ -187,12 +229,43 @@ local function Settings(name, scale, r)
     } }
 end
 local namespace = {}
+local borderAPI = assert(loadfile("EllesmereUINameplateExtras/tests/border-mocks.lua"))()
+EllesmereUI = EllesmereUI or {}
+for key, value in pairs(borderAPI) do EllesmereUI[key] = value end
+if ... == "scaling" then
+    UIParent = CreateFrame()
+    EllesmereNameplates_NS.db = { profile = { castOverlayEnabled = false } }
+    assert(loadfile("EllesmereUINameplates/EllesmereUINameplates_CastOverlay.lua"))("EllesmereUINameplates", EllesmereNameplates_NS)
+    local bundles = {}
+    function EllesmereNameplates_NS.NPC_AttachPlate(p, bundle)
+        bundles[p] = bundle
+        bundle.holder:SetParent(p)
+    end
+    function EllesmereNameplates_NS.NPC_DetachPlate(p)
+        local b = bundles[p]
+        bundles[p] = nil
+        if b then b.holder:SetParent(UIParent) end
+    end
+    EllesmereUI.AuraKit = { AddGroupToContainer = function(container, spec)
+        container.testGroupStyle = spec.style
+    end }
+    EllesmereNameplates_NS._cachedTargetPlate = plate
+    function EllesmereNameplates_NS.GetClassPowerScale() return 1 end
+    function EllesmereNameplates_NS.RefreshClassPower() EllesmereNameplates_NS.GetClassPowerScale() end
+    function EllesmereNameplates_NS._WCNP_Attach(anchor, rel, left, x, y, width, height, cell, gap, scale, color, empty, bg, power)
+        return scale, "renderer", power
+    end
+end
 assert(loadfile("EllesmereUINameplateExtras/EllesmereUINameplateExtras.lua"))("EllesmereUINameplateExtras", namespace)
+assert(loadfile("EllesmereUINameplateExtras/EllesmereUINameplateExtras_Borders.lua"))("EllesmereUINameplateExtras", namespace)
+assert(loadfile("EllesmereUINameplateExtras/EllesmereUINameplateExtras_Glows.lua"))("EllesmereUINameplateExtras", namespace)
+assert(loadfile("EllesmereUINameplateExtras/EllesmereUINameplateExtras_Scaling.lua"))("EllesmereUINameplateExtras", namespace)
+assert(loadfile("EllesmereUINameplateExtras/EllesmereUINameplateExtras_TargetArrows.lua"))("EllesmereUINameplateExtras", namespace)
 assert(loadfile("EllesmereUINameplateExtras/EllesmereUINameplateExtras_CastStyles.lua"))("EllesmereUINameplateExtras", namespace)
 assert(EllesmereUINameplateExtrasDB == nil, "new SavedVariables initialized before ADDON_LOADED")
 local api = EllesmereUINameplateExtras
 assert(api, "public API missing")
-if ... == "traits" then
+if ... == "traits" or ... == "scaling" then
     return { api = api, namespace = namespace, mocks = traitMocks, secret = secretValue,
         plate = plate, frames = frames, Flush = Flush, Fire = Fire }
 end
@@ -319,6 +392,7 @@ Near(plate.scale, 1.38, "refresh preserves engine scale")
 local rows, spec, registeredID = {}, nil, nil
 local sectionHeaders = {}
 local parent = CreateFrame()
+local contentHeader = CreateFrame()
 local W = {}
 local widgetRefreshes = {}
 function W:SectionHeader(_, text)
@@ -384,6 +458,8 @@ function W:DualRow(_, _, config, right)
         return row, 50
     end
     local row = CreateFrame()
+    row._leftRegion = CreateFrame("Frame", nil, row)
+    row._rightRegion = CreateFrame("Frame", nil, row)
     for _, cfg in ipairs({ config, right }) do
         if cfg.type == "colorpicker" then assert(type(cfg.getValue()) == "number") end
         rows[cfg.text] = { get = cfg.getValue, set = cfg.setValue, disabled = cfg.disabled,
@@ -414,7 +490,13 @@ function LibStub(name)
 end
 local exportedPopup, importedPopup, legacyImportPopup, deleteConfirm
 EllesmereUI = {
+    PP = borderAPI.PP, ApplyBorderStyle = borderAPI.ApplyBorderStyle, GetBorderTextureDropdown = borderAPI.GetBorderTextureDropdown,
     Widgets = W,
+    BuildInlineCog = function(region, opts)
+        assert(region and region.nativeFrame, "cog needs a native region")
+        rows[opts.title] = opts
+        return CreateFrame("Button", nil, region)
+    end,
     MakeStyledButton = function(button, text, _, _, click)
         rows[text] = { click = click, row = button.parent, button = button }
     end,
@@ -436,6 +518,19 @@ EllesmereUI = {
         Size = function(frame, width, height) frame:SetSize(width, height) end,
         Point = function(frame, ...) frame:SetPoint(...) end,
     },
+    _contentHeader = contentHeader,
+    SetContentHeader = function(self, builder)
+        self:ClearContentHeader()
+        contentHeader:Show()
+        contentHeader:SetHeight(builder(contentHeader, contentHeader:GetWidth()))
+    end,
+    ClearContentHeader = function()
+        local p = contentHeader._extrasRulePreview
+        if p then p:Hide(); p:SetParent(nil) end
+        contentHeader._extrasRulePreview = nil
+        contentHeader:Hide()
+    end,
+    UpdateContentHeaderHeight = function(_, height) contentHeader:SetHeight(height) end,
     IsSearchPrebuild = function() return false end,
     _Serializer = {
         Serialize = function(payload)
@@ -465,6 +560,7 @@ EllesmereUI = {
     end,
 }
 assert(loadfile("EllesmereUINameplateExtras/EllesmereUINameplateExtras_RuleIO.lua"))()
+assert(loadfile("EllesmereUINameplateExtras/EllesmereUINameplateExtras_Preview.lua"))()
 assert(loadfile("EllesmereUINameplateExtras/EllesmereUINameplateExtras_Options.lua"))()
 Fire("PLAYER_LOGIN")
 assert(registeredID == "EllesmereUINameplateExtras")
@@ -477,6 +573,7 @@ assert(rows["Nameplate size (%)"].row == rows["Opacity (%)"].row, "nameplate siz
 if ... == "ui-locks" then
     return { api = api, namespace = namespace, rows = rows, spec = spec, parent = parent,
         plate = plate, frames = frames, Flush = Flush, refreshes = widgetRefreshes,
+        header = contentHeader, secret = secretValue, GetPreview = function() return contentHeader._extrasRulePreview end,
         GetConfirm = function() return deleteConfirm end }
 end
 local masterToggle = assert(rows["Enable rule styling"], "Rules page is missing the global toggle")
@@ -876,7 +973,7 @@ rows["Custom cast color"].set(true)
 rows["Cast fill color"].set(0.9, 0.2, 0.1)
 rows["Custom cast opacity"].set(true)
 rows["Cast opacity (%)"].set(60)
-rows["Additional cast border"].set(true)
+rows["Override cast border"].set(true)
 rows["Cast border size"].set(3)
 rows["Cast border color"].set(0.1, 0.9, 0.3)
 Flush()
@@ -961,28 +1058,25 @@ api.GetSettings().enabled = true
 api.Refresh(); Flush()
 assert(rows["Override health bar"].get())
 assert(rows["Custom health color"].get())
-assert(not rows["Additional health border"].get())
+assert(not rows["Override health border"].get())
 assert(rows["Health border size"].disabled())
-rows["Additional health border"].set(true); Flush()
+rows["Override health border"].set(true); Flush()
 assert(api.GetRules()[1].style.borderSize == 2, "enabling legacy zero-size border needs a visible size")
 rows["Health border size"].set(4)
 rows["Health border color"].set(0.4, 0.7, 0.2)
 rows["Health-bar texture"].set("flat")
 Flush()
-local healthBorder
-for _, frame in ipairs(frames) do
-    if frame.parent == plate and frame.kind == "Frame" then healthBorder = frame end
-end
+local healthBorder = namespace.GetRuleBorderFrames(plate)
 assert(healthBorder and healthBorder.shown)
 rows["Health-bar texture"].set("melli"); Flush()
 assert(plate.health.texture == "EUI-Melli", "health selector should resolve EUI textures")
 rows["Health-bar texture"].set("sm:Test Texture"); Flush()
 assert(plate.health.texture == "SM-Test-Path", "health selector should resolve SharedMedia textures")
 rows["Health-bar texture"].set("flat"); Flush()
-rows["Additional health border"].set(false); Flush()
+rows["Override health border"].set(false); Flush()
 assert(not healthBorder.shown and rows["Health border color"].disabled())
 assert(api.GetRules()[1].style.borderSize == 4, "border toggle must preserve size")
-rows["Additional health border"].set(true); Flush()
+rows["Override health border"].set(true); Flush()
 assert(healthBorder.shown and api.GetRules()[1].style.borderSize == 4)
 
 -- Observe genuine engine writes, not plugin paint left behind by cached updates.
@@ -1001,7 +1095,7 @@ rows["Override health bar"].set(false); Flush()
 Near(plate.health.color[1], 0.25, "health master restores color")
 assert(plate.health.texture == "latest-health-engine" and not healthBorder.shown)
 assert(rows["Custom health color"].disabled() and rows["Health-bar texture"].disabled())
-assert(rows["Additional health border"].disabled() and rows["Health border size"].disabled())
+assert(rows["Override health border"].disabled() and rows["Health border size"].disabled())
 assert(castBorder.shown, "health master must not disable cast overrides")
 Near(plate.scale, 1.3, "health master must not change whole-nameplate scale")
 rows["Override health bar"].set(true); Flush()

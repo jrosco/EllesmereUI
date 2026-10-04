@@ -136,6 +136,7 @@ local function NormalizeProfile(profile)
         if type(rule.style) ~= "table" then rule.style = {} end
         NormalizeRuleConditions(rule)
         MergeMissing(rule.style, DEFAULT_RULES[1].style)
+        if addon.NormalizeScaleElements then rule.style.scaleElements = addon.NormalizeScaleElements(rule.style.scaleElements) end
         if rule.enabled == nil then rule.enabled = true end
     end
     profile.selectedRule = math.max(1, math.min(tonumber(profile.selectedRule) or 1, #profile.rules))
@@ -344,43 +345,6 @@ local function ResolveBarTexturePath(key)
         return EllesmereUI.ResolveTexturePath(nameplates.healthBarTextures, key, "Interface\\Buttons\\WHITE8x8")
     end
     return "Interface\\Buttons\\WHITE8x8"
-end
-
-local function EnsureBorder(plate, state)
-    if state.border then return state.border end
-    if not plate.health then return nil end
-    local border = CreateFrame("Frame", nil, plate)
-    border:SetAllPoints(plate.health)
-    border:SetFrameStrata(plate.health:GetFrameStrata())
-    border:SetFrameLevel(plate.health:GetFrameLevel() + 20)
-    local edges = {}
-    for i = 1, 4 do
-        local tex = border:CreateTexture(nil, "OVERLAY")
-        tex:SetColorTexture(1, 1, 1, 1)
-        edges[i] = tex
-    end
-    state.border = border
-    state.borderEdges = edges
-    return border
-end
-
-local function ApplyBorder(plate, state, style)
-    local size = math.max(0, math.min(8, tonumber(style.borderSize) or 0))
-    if style.healthEnabled == false or style.borderEnabled == false or size == 0 then
-        if state.border then state.border:Hide() end
-        return
-    end
-    local border = EnsureBorder(plate, state)
-    if not border then return end
-    local c = style.borderColor or { r = 1, g = 1, b = 1 }
-    local px = math.max(1, math.floor(size + 0.5))
-    local top, bottom, left, right = unpack(state.borderEdges)
-    top:ClearAllPoints(); top:SetPoint("TOPLEFT", border, "TOPLEFT"); top:SetPoint("TOPRIGHT", border, "TOPRIGHT"); top:SetHeight(px)
-    bottom:ClearAllPoints(); bottom:SetPoint("BOTTOMLEFT", border, "BOTTOMLEFT"); bottom:SetPoint("BOTTOMRIGHT", border, "BOTTOMRIGHT"); bottom:SetHeight(px)
-    left:ClearAllPoints(); left:SetPoint("TOPLEFT", top, "BOTTOMLEFT"); left:SetPoint("BOTTOMLEFT", bottom, "TOPLEFT"); left:SetWidth(px)
-    right:ClearAllPoints(); right:SetPoint("TOPRIGHT", top, "BOTTOMRIGHT"); right:SetPoint("BOTTOMRIGHT", bottom, "TOPRIGHT"); right:SetWidth(px)
-    for _, edge in ipairs(state.borderEdges) do edge:SetColorTexture(c.r or 1, c.g or 1, c.b or 1, 1) end
-    border:Show()
 end
 
 local SCHOOL_MASKS = {
@@ -788,8 +752,11 @@ local function ApplyAlpha(plate, state)
 end
 
 local function ResetStyle(plate, state, released, castColors)
+    if addon.ApplyRuleGlows then addon.ApplyRuleGlows(plate, nil) end
+    if addon.ApplyRuleBorders then addon.ApplyRuleBorders(plate, nil) end
+    if addon.ApplyTargetArrowStyle then addon.ApplyTargetArrowStyle(plate, nil, released) end
     if addon.ApplyCastStyle then addon.ApplyCastStyle(plate, nil, nil, castColors) end
-    if state.border then state.border:Hide() end
+    local refreshResources = addon.ClearScaleSelection and addon.ClearScaleSelection(plate)
     state.writingHealth = true
     if state.hadColor and state.baseColor and plate.health then
         local c = state.baseColor
@@ -806,6 +773,7 @@ local function ResetStyle(plate, state, released, castColors)
     if state.scaleFactor and state.scaleFactor ~= 1 and plate.SetScale then
         SetScaleFactor(plate, state, 1)
     end
+    if refreshResources and NP and NP.RefreshClassPower and not released then NP.RefreshClassPower() end
     -- ClearUnit has already reset the engine's pool state. Do not restore the
     -- departing unit's alpha, including when the engine skipped its alpha setter.
     if released then state.baseAlpha = 1 end
@@ -824,7 +792,6 @@ local function ApplyStyle(plate)
     if not unit or not UnitExists(unit) or not plate.health then return end
     local state = GetState(plate)
     if state.unit ~= unit then
-        if state.border then state.border:Hide() end
         state.unit = unit
         state.hadColor, state.hadTexture = nil, nil
     end
@@ -868,13 +835,17 @@ local function ApplyStyle(plate)
         NP.NP_LayoutAbsorbBars(plate, plate.health, plate._absEdge)
     end
     state.writingHealth = nil
-    ApplyBorder(plate, state, style)
+    if addon.ApplyRuleBorders then addon.ApplyRuleBorders(plate, style) end
+    if addon.ApplyTargetArrowStyle then addon.ApplyTargetArrowStyle(plate, style) end
     local scale = math.max(50, math.min(200, tonumber(style.scale) or 100)) / 100
     local opacity = math.max(0, math.min(100, tonumber(style.opacity) or 100)) / 100
-    SetScaleFactor(plate, state, scale)
+    local rootScale = addon.PrepareScaleSelection and addon.PrepareScaleSelection(plate, scale, style.scaleElements) or scale
+    SetScaleFactor(plate, state, rootScale)
+    if addon.ApplyScaleSelection then addon.ApplyScaleSelection(plate) end
     state.alphaFactor = opacity
     if plate.SetAlpha then ApplyAlpha(plate, state) end
     if addon.ApplyCastStyle then addon.ApplyCastStyle(plate, style, rule.conditions, castColors) end
+    if addon.ApplyRuleGlows then addon.ApplyRuleGlows(plate, style) end
 end
 
 local InstallHooks
@@ -978,7 +949,11 @@ local function QueueCastTransitionCheck()
 end
 
 local function InstallPlateHooks(plate)
-    if not plate or hooked[plate] then return end
+    if not plate then return end
+    if addon.InstallGlowHooks then addon.InstallGlowHooks(plate) end
+    if addon.InstallBorderHooks then addon.InstallBorderHooks(plate) end
+    if addon.InstallTargetArrowHooks then addon.InstallTargetArrowHooks(plate) end
+    if hooked[plate] then return end
     hooked[plate] = true
     local state = GetState(plate)
     state.baseColor = ColorOf(plate.health)
@@ -1040,6 +1015,7 @@ end
 InstallHooks = function()
     NP = _G.EllesmereNameplates_NS or NP
     if not NP then return end
+    if addon.InstallScaleSelectionHooks then addon.InstallScaleSelectionHooks() end
     for _, plate in pairs(NP.plates or {}) do InstallPlateHooks(plate) end
     for _, plate in pairs(NP.friendlyPlates or {}) do InstallPlateHooks(plate) end
     if NP.NT_Apply and not addon.opacityHooked then

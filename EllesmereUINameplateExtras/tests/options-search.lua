@@ -22,6 +22,19 @@ function CreateFrame(kind, _, parent)
     function frame:SetScript(event, fn) self[event] = fn end
     function frame:GetChildren() return unpack(self.children) end
     function frame:CreateFontString() return CreateFrame("FontString", nil, self) end
+    function frame:CreateTexture() return CreateFrame("Texture", nil, self) end
+    function frame:SetHeight(value) self.height = value end
+    function frame:SetWidth(value) self.width = value end
+    function frame:SetMinMaxValues(min, max) self.min, self.max = min, max end
+    function frame:SetValue(value) self.value = value end
+    function frame:SetStatusBarTexture(path) self.texture = path end
+    function frame:SetStatusBarColor(...) self.color = { ... } end
+    function frame:SetColorTexture(...) self.color = { ... } end
+    function frame:SetVertexColor(...) self.color = { ... } end
+    function frame:SetTexture(path) self.texture = path end
+    function frame:SetFont(path, size) self.fontPath, self.fontSize = path, size; return true end
+    function frame:SetScale(scale) self.scale = scale end
+    function frame:GetEffectiveScale() return 1 end
     for _, key in ipairs({ "SetJustifyH", "SetWordWrap", "SetMaxLines", "SetFrameLevel",
         "EnableMouse", "SetMouseClickEnabled", "Hide", "Show" }) do frame[key] = Noop end
     return frame
@@ -35,9 +48,15 @@ end
 local db = { selectedRule = 1, rules = { Rule("First rule"), Rule("Second rule") } }
 EllesmereUINameplateExtras = { GetSettings = function() return db end, Refresh = Noop,
     CastStyleDefaults = {} }
+assert(loadfile("EllesmereUINameplateExtras/EllesmereUINameplateExtras_Scaling.lua"))("EllesmereUINameplateExtras", {})
+assert(loadfile("EllesmereUINameplateExtras/EllesmereUINameplateExtras_Borders.lua"))("EllesmereUINameplateExtras", {})
+assert(loadfile("EllesmereUINameplateExtras/EllesmereUINameplateExtras_Glows.lua"))("EllesmereUINameplateExtras", {})
+assert(loadfile("EllesmereUINameplateExtras/EllesmereUINameplateExtras_TargetArrows.lua"))("EllesmereUINameplateExtras", {})
+assert(loadfile("EllesmereUINameplateExtras/EllesmereUINameplateExtras_Preview.lua"))()
 local spec, currentSection, pageRows, index, fields = nil, nil, {}, {}, {}
 local searchEntries
 local parent = CreateFrame("Frame") -- GlobalSearch also passes a real wrapper, not an absorber parent.
+local contentHeader = CreateFrame("Frame")
 local function UpdateIndex()
     for _, entry in ipairs(searchEntries) do
         if entry.page == "Rules" then index[entry.label] = entry end
@@ -97,7 +116,18 @@ function W:Button(_, text, y, click)
     return row, h
 end
 EllesmereUI = {
+    SetContentHeader = function(_, builder)
+        assert(not EllesmereUI._prebuilding, "hero preview must not be built during frameless search indexing")
+        contentHeader:SetHeight(builder(contentHeader, contentHeader:GetWidth()))
+    end,
+    ClearContentHeader = Noop,
+    UpdateContentHeaderHeight = function(_, h) contentHeader:SetHeight(h) end,
     Widgets = W, CONTENT_PAD = 20, L = function(text) return text end,
+    BuildInlineCog = function(region, opts)
+        assert(not EllesmereUI._prebuilding, "cog built during frameless prebuild")
+        fields[opts.title] = { region = region, rows = opts.rows }
+        return CreateFrame("Button", nil, region)
+    end,
     PanelPP = { Size = function(f, ...) f:SetSize(...) end, Point = function(f, ...) f:SetPoint(...) end },
     IsSearchPrebuild = function() return EllesmereUI._prebuilding == true end,
     MakeFont = function(p) return p:CreateFontString() end,
@@ -114,6 +144,7 @@ EllesmereUI = {
     IsDevModeActive = function() return true end,
     Show = Noop,
 }
+for key, value in pairs(assert(loadfile("EllesmereUINameplateExtras/tests/border-mocks.lua"))()) do EllesmereUI[key] = value end
 -- Inspect private closures without copying production implementation into the fixture.
 local function Upvalue(fn, wanted)
     for i = 1, math.huge do
@@ -202,7 +233,9 @@ local function PrebuildTest()
     refreshes = {}
     for _, label in ipairs({ "Unit type", "Reaction", "Classification", "Target state", "Threat", "Cast state",
         "Spell school", "Quest Objective", "Nameplate size (%)", "Opacity (%)", "Health-bar texture",
-        "Cast-bar texture", "Cast border size" }) do
+        "Cast-bar texture", "Cast border size",
+        "Override target arrows", "Target-arrow style", "Health border texture", "Cast border texture",
+        "Health border glow", "Health glow color", "Cast border glow", "Cast glow color" }) do
         assert(index[label], "prebuild missed " .. label)
     end
     assert(index["Unit type"].tooltip:find("Any creature", 1, true), "condition tooltip lost")
@@ -254,6 +287,11 @@ local function SectionsTest()
     assert(fields["Rule name"].get() == "Renamed second rule", "selected rule context missing")
     assert(fields["Edit rule"].row == fields["Rule name"].row, "selector and name need one shared settings row")
     assert(fields["Nameplate size (%)"].row == fields["Opacity (%)"].row, "nameplate appearance sliders need one shared row")
+    assert(index["Health-bar preview"] == nil and index["Cast-bar preview"] == nil and index["Target-arrow preview"] == nil,
+        "removed inline previews must not be indexed as settings")
+    assert(contentHeader._extrasRulePreview.parent == contentHeader, "combined preview is outside scroll/search rows")
+    assert(spec.modules[1].getHeaderBuilder("Rules") and not spec.modules[1].getHeaderBuilder("Profiles"),
+        "plugin exposes cached header builder for Rules only")
     assert(fields["Edit rule"].values["2"]:find("Renamed second rule", 1, true), "selector context stale")
     assert(fields["Edit rule"].values["2"] == "[2] Renamed second rule", "rule priority/name format incorrect")
     print("PASS sections: first-indexed exact destinations survive selection and rename; current name/position visible")
