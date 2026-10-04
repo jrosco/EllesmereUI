@@ -12,6 +12,13 @@ local CLASSIFICATIONS = { any = "Any rank", normal = "Normal", elite = "Elite", 
 local CLASSIFICATION_ORDER = { "any", "normal", "elite", "rare", "rareelite", "boss", "minus" }
 local TARGETS = { any = "Any target state", yes = "Current target", no = "Not current target", none = "No target selected" }
 local TARGET_ORDER = { "any", "yes", "no", "none" }
+local THREATS = { any = "Any threat", nonTank = "Non-tank threat", tank = "Tank threat", me = "Threat on me" }
+local THREAT_ORDER = { "any", "nonTank", "tank", "me" }
+local THREAT_TIPS = {
+    nonTank = "Matches when a non-tank (Damage or Healer role) holds this unit's aggro.",
+    tank = "Matches when a tank holds this unit's aggro.",
+    me = "Matches when you hold this unit's aggro, regardless of your role.",
+}
 local CAST_STATES = {
     any = "Any cast state", none = "Not casting", casting = "Casting", channel = "Channeling",
     empowered = "Empowered cast", interruptible = "Interruptible cast", interruptOnCD = "Interrupt on CD", uninterruptible = "Uninterruptible cast",
@@ -372,6 +379,7 @@ local function BuildRulesPage(parent, yOffset)
         for _, value in ipairs(keys) do
             if value ~= "any" then
                 local item = { key = value, label = values[value] }
+                if key == "threat" then item.tooltip = THREAT_TIPS[value] end
                 if key == "castState" and CUSTOM_CAST_STATES[value] then
                     item.lockedFn = function() return not addon.SupportsCastColorStates() end
                     item.lockedTooltip = CUSTOM_CAST_STYLE_TIP
@@ -465,13 +473,20 @@ local function BuildRulesPage(parent, yOffset)
         end
         y = y - rowHeight
     end
-    _, h = W:Toggle(parent, "Quest Objective", y,
-        function() return GetRule().conditions.questObjective == "yes" end,
-        function(value)
+    local threat = ConditionMultiDropdown("Threat", "threat", THREATS, THREAT_ORDER,
+        "Matches the actual aggro holder: a tank, a non-tank (Damage/Healer), or you. Uses detailed threat data, not temporary spell targets. Multiple selections combine with OR; other filter groups combine with AND. Secret or unavailable threat/role data does not match. Unassigned roles do not count as known tanks or non-tanks.")
+    local threatRow
+    threatRow, h = W:DualRow(parent, y,
+        { type = "spacer", text = threat.text, tooltip = threat.tooltip }, {
+        type = "toggle", text = "Quest Objective",
+        getValue = function() return GetRule().conditions.questObjective == "yes" end,
+        setValue = function(value)
             GetRule().conditions.questObjective = value and "yes" or "any"
             Changed()
         end,
-        "When on, matches only units shown as incomplete objectives in your own quest log. Uses EUI's quest detector and follows its Show In Instances setting. When off, quest status does not restrict this rule.")
+        tooltip = "When on, matches only units shown as incomplete objectives in your own quest log. Uses EUI's quest detector and follows its Show In Instances setting. When off, quest status does not restrict this rule.",
+    })
+    if not EllesmereUI.IsSearchPrebuild() then BuildConditionMultiDropdown(threatRow._leftRegion, threat) end
     y = y - h
     _, h = W:SectionHeader(parent, "APPEARANCE - NAMEPLATE", y); y = y - h
     _, h = W:Slider(parent, "Nameplate size (%)", y, 50, 200, 5,
@@ -644,7 +659,7 @@ local function BuildAboutPage(parent, yOffset)
     Section("NAMEPLATE EXTRAS", versionText ..
         "Adds customizable, rule-based styling to EllesmereUI Nameplates so important units and casts stand out. Requires EllesmereUI and EllesmereUI Nameplates.")
     Section("CUSTOM APPEARANCE",
-        "Adjust nameplate size and opacity, health-bar colors and textures, and borders. Apply styles based on unit type, reaction, classification, quest objectives, targets and casts.")
+        "Adjust nameplate size and opacity, health-bar colors and textures, and borders. Apply styles based on unit type, reaction, classification, quest objectives, targets, threat and casts.")
     Section("CAST COLORS",
         "Customize cast-bar appearance, including separate colors for interruptible casts, interrupts on cooldown and uninterruptible casts.")
     Section("PROFILES AND SHARING",

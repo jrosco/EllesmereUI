@@ -227,8 +227,10 @@ local function CheckTargetSelections()
 end
 CheckTargetSelections()
 assert(api.CreateProfile("Target regression"))
-assert(next(api.GetRules()[2].conditions.target) == nil, "starter elite rule must allow non-targets")
-assert(next(api.GetRules()[3].conditions.target) == nil, "starter casting rule must allow non-targets")
+local startersByName = {}
+for _, starter in ipairs(api.GetRules()) do startersByName[starter.name] = starter end
+assert(next(startersByName["Elite Enemies"].conditions.target) == nil, "starter elite rule must allow non-targets")
+assert(next(startersByName["Enemy Casting"].conditions.target) == nil, "starter casting rule must allow non-targets")
 local originalIsUnit, originalClassification = UnitIsUnit, UnitClassification
 UnitIsUnit = function() return false end
 UnitClassification = function() return "elite" end
@@ -261,8 +263,8 @@ api.GetSettings().rules[1].name = "Shared Default"
 local created, profileError = api.CreateProfile("Tank")
 assert(created, tostring(profileError) .. "; character=" .. tostring(api.GetProfileInfo().character))
 assert(api.GetProfileInfo().active == "Tank")
-assert(api.GetSettings().rules[1].name == "Current Target", "new profile should start with built-in rules")
-Near(api.GetSettings().rules[1].style.healthColor.r, 0.12, "new profile built-in health color")
+assert(api.GetSettings().rules[1].name == api.DefaultRules[1].name, "new profile should start with built-in rules")
+Near(api.GetSettings().rules[1].style.healthColor.r, api.DefaultRules[1].style.healthColor.r, "new profile built-in health color")
 api.GetSettings().rules[1].name = "Tank Rule"
 playerName = "AltCharacter"
 assert(api.GetProfileInfo().active == "Default", "new character should start on shared Default")
@@ -279,7 +281,7 @@ assert(renamedShared, renameSharedError)
 assert(api.GetProfileInfo().active == "Main Tank")
 local createdOther, createOtherError = api.CreateProfile("DPS")
 assert(createdOther, createOtherError)
-assert(api.GetSettings().rules[1].name == "Current Target", "new profile should use fresh built-in rules")
+assert(api.GetSettings().rules[1].name == api.DefaultRules[1].name, "new profile should use fresh built-in rules")
 local renamedProfile, renameError = api.RenameProfile("Raid")
 assert(renamedProfile, renameError)
 assert(api.GetProfileInfo().active == "Raid")
@@ -368,8 +370,11 @@ function W:DualRow(_, _, config, right)
     end
     if config.type == "spacer" then
         local row = CreateFrame()
-        row._leftRegion = CreateFrame()
-        row._rightRegion = CreateFrame()
+        row._leftRegion = CreateFrame("Frame", nil, row)
+        row._rightRegion = CreateFrame("Frame", nil, row)
+        if right and right.type == "toggle" then
+            rows[right.text] = { get = right.getValue, set = right.setValue, row = row }
+        end
         return row, 50
     end
     for _, cfg in ipairs({ config, right }) do
@@ -411,7 +416,7 @@ EllesmereUI = {
         local button = CreateFrame("Button", nil, parent)
         button:SetSize(width, 30)
         button:SetFrameLevel(frameLevel)
-        rows[opts.label] = { get = get, set = set, items = items, emptyLabel = opts.emptyLabel }
+        rows[opts.label] = { get = get, set = set, items = items, emptyLabel = opts.emptyLabel, row = parent.parent }
         return button, Noop
     end,
     ResolveTexturePath = function(textureTable, key, fallback) return textureTable[key] or fallback end,
@@ -509,7 +514,7 @@ rows["Create Profile"].click()
 assert(legacyImportPopup and legacyImportPopup.title == "Create Nameplate Profile")
 legacyImportPopup.onConfirm("UI Test Profile")
 assert(api.GetProfileInfo().active == "UI Test Profile", "Profiles tab didn't create/select its profile")
-assert(api.GetSettings().rules[1].name == "Current Target", "Profiles tab didn't create a fresh profile")
+assert(api.GetSettings().rules[1].name == api.DefaultRules[1].name, "Profiles tab didn't create a fresh profile")
 rows["Profile for this character"].set("Default")
 assert(api.GetProfileInfo().active == "Default", "Profiles tab didn't switch back to Default")
 spec.modules[1].buildPage("Rules", parent, 0)
@@ -600,10 +605,23 @@ local unitType = rows["Unit type"]
 local reaction = rows["Reaction"]
 local classification = rows["Classification"]
 local targetState = rows["Target state"]
+local threatState = rows["Threat"]
 local castState = rows["Cast state"]
 local spellSchool = rows["Spell school"]
-assert(unitType and reaction and classification and targetState and castState and spellSchool,
+assert(unitType and reaction and classification and targetState and threatState and castState and spellSchool,
     "categorical multi-select controls were not built")
+assert(threatState.emptyLabel == "Any threat" and #threatState.items == 3, "Threat choices missing")
+assert(threatState.row == rows["Quest Objective"].row, "Threat and Quest Objective must share a row")
+threatState.set("me", true)
+assert(api.GetRules()[1].conditions.threat.me, "Threat on me was not saved")
+local originalDetailedThreat = UnitDetailedThreatSituation
+UnitDetailedThreatSituation = function(participant) assert(participant == "player"); return true end
+assert(namespace.FindRule("nameplate1") == api.GetRules()[1], "Threat on me UI selection did not match")
+threatState.set("tank", true)
+assert(threatState.get("me") and threatState.get("tank"), "Threat selections must preserve other choices")
+threatState.set("tank", false)
+threatState.set("me", false)
+UnitDetailedThreatSituation = originalDetailedThreat
 local hasNoTargetItem = false
 for _, item in ipairs(targetState.items) do
     if item.key == "none" and item.label == "No target selected" then hasNoTargetItem = true end

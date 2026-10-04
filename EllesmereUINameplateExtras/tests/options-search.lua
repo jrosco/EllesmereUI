@@ -197,7 +197,7 @@ local function PrebuildTest()
     end
     assert(aboutIndexed, "About sections must be indexed without creating live paragraph controls")
     refreshes = {}
-    for _, label in ipairs({ "Unit type", "Reaction", "Classification", "Target state", "Cast state",
+    for _, label in ipairs({ "Unit type", "Reaction", "Classification", "Target state", "Threat", "Cast state",
         "Spell school", "Quest Objective", "Nameplate size (%)", "Opacity (%)", "Health-bar texture",
         "Cast-bar texture", "Cast border size" }) do
         assert(index[label], "prebuild missed " .. label)
@@ -205,11 +205,18 @@ local function PrebuildTest()
     assert(index["Unit type"].tooltip:find("Any creature", 1, true), "condition tooltip lost")
     for _, text in ipairs(actions) do assert(index[text], "action search entry lost: " .. text) end
     Build()
-    assert(#refreshes == 6, "live condition refresh registrations missing")
-    for _, label in ipairs({ "Unit type", "Reaction", "Classification", "Target state", "Cast state", "Spell school" }) do
+    assert(#refreshes == 7, "live condition refresh registrations missing")
+    for _, label in ipairs({ "Unit type", "Reaction", "Classification", "Target state", "Cast state", "Spell school", "Threat" }) do
         assert(dropdowns[label] and rawget(dropdowns[label].parent, "nativeFrame"), "live dropdown missing: " .. label)
         assert(dropdowns[label].parent._slotLabel == label, "slot highlight metadata lost")
     end
+    local paired = false
+    for _, row in ipairs(pageRows) do
+        if row._labelText == "Threat Quest Objective" then
+            paired = dropdowns["Threat"].parent == row._leftRegion and type(fields["Quest Objective"].set) == "function"
+        end
+    end
+    assert(paired, "Threat dropdown and Quest Objective toggle must share one settings row")
     local unit = dropdowns["Unit type"]
     assert(unit.emptyLabel == "Any unit" and #unit.items == 4)
     unit.set("npc", true); unit.set("player", true)
@@ -218,7 +225,7 @@ local function PrebuildTest()
     assert(not unit.get("npc") and unit.get("player"), "deselect erased another selection")
     unit.set("player", false)
     assert(next(db.rules[1].conditions.unitType) == nil, "empty selection must mean Any")
-    print("PASS prebuild: actual GlobalSearch pass/index; two wrapper frames, zero controls; six live dropdowns")
+    print("PASS prebuild: actual GlobalSearch pass/index; two wrapper frames, zero controls; seven live dropdowns")
 end
 local function SectionsTest()
     Build() -- first registration is retained, exactly like GlobalSearch.

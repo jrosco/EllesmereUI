@@ -5,6 +5,7 @@ local MULTI_CONDITION_VALUES = {
     reaction = { enemy = true, friendly = true, neutral = true },
     classification = { normal = true, elite = true, rare = true, rareelite = true, boss = true, minus = true },
     target = { yes = true, no = true, none = true },
+    threat = { nonTank = true, tank = true, me = true },
     castState = { none = true, casting = true, channel = true, empowered = true, interruptible = true, interruptOnCD = true, uninterruptible = true },
     spellSchool = { physical = true, holy = true, fire = true, nature = true, frost = true, shadow = true, arcane = true, mixed = true },
 }
@@ -460,7 +461,58 @@ local function KnownCastColorState(interruptible)
     return value
 end
 
-local function GetTraits(unit, checkQuestObjective)
+local function ReadThreat(unit, checkRoles, targetExists, isTarget)
+    local result = {}
+    if type(UnitDetailedThreatSituation) ~= "function" then return result end
+    -- Current-target pairings can be readable when nameplate pairings are not.
+    local mob = targetExists == true and isTarget == true and "target" or unit
+    local function IsHolding(participant)
+        local ok, value = pcall(UnitDetailedThreatSituation, participant, mob)
+        if ok then return SafeBool(value) end
+    end
+    local function Classify(participant)
+        local getRole = (EllesmereUI and EllesmereUI.UnitEffectiveRole) or UnitGroupRolesAssigned
+        if type(getRole) ~= "function" then return false end
+        local ok, role = pcall(getRole, participant)
+        if not ok or IsSecret(role) or type(role) ~= "string" then return false end
+        if role == "TANK" then result.tank, result.nonTank = true, false
+        elseif role == "DAMAGER" or role == "HEALER" then result.tank, result.nonTank = false, true
+        else return false end -- NONE is unassigned, not proof of a non-tank role.
+        result.holder = participant
+        result.role = role
+        return true
+    end
+    result.me = IsHolding("player")
+    if result.me == true then result.holder = "player" end
+    if not checkRoles then return result end
+    if result.me == true then Classify("player"); return result end
+    local function CheckHolder(participant)
+        if SafeBool(UnitExists(participant)) ~= true or IsHolding(participant) ~= true then return false end
+        result.holder = participant
+        if SafeBool(UnitIsUnit(participant, "player")) == true then result.me = true end
+        return Classify(participant)
+    end
+    -- The unit's target is only a candidate: casts can temporarily target a
+    -- different player. Require detailed threat confirmation before using its role.
+    if CheckHolder(mob .. "target") or CheckHolder("pet") then return result end
+    local raid = IsInRaid and SafeBool(IsInRaid()) == true
+    local count = 0
+    if raid and GetNumGroupMembers then count = GetNumGroupMembers()
+    elseif GetNumSubgroupMembers then count = GetNumSubgroupMembers()
+    elseif GetNumGroupMembers then
+        local members = GetNumGroupMembers()
+        if not IsSecret(members) and type(members) == "number" then count = members - 1 end
+    end
+    if IsSecret(count) or type(count) ~= "number" or count ~= count then return result end
+    count = math.max(0, math.min(raid and 40 or 4, math.floor(count)))
+    for i = 1, count do
+        if CheckHolder((raid and "raid" or "party") .. i)
+            or CheckHolder((raid and "raidpet" or "partypet") .. i) then return result end
+    end
+    return result
+end
+
+local function GetTraits(unit, checkQuestObjective, checkThreat, checkThreatRoles)
     local player = SafeBool(UnitIsPlayer(unit))
     local unitType
     if player == true then
@@ -497,6 +549,7 @@ local function GetTraits(unit, checkQuestObjective)
         classification = classification,
         target = isTarget,
         targetExists = targetExists,
+        threat = checkThreat and ReadThreat(unit, checkThreatRoles, targetExists, isTarget) or nil,
         questObjective = questObjective,
         tapDenied = UnitIsTapDenied and SafeBool(UnitIsTapDenied(unit)),
         castState = castState,
@@ -528,6 +581,19 @@ local function HasSelection(selection)
         end
     end
     return false
+end
+
+local function ThreatRequirements(rules)
+    local needed = false
+    for _, rule in ipairs(rules) do
+        local selection = rule.conditions and rule.conditions.threat
+        if rule.enabled ~= false and HasSelection(selection) then
+            needed = true
+            if selection == "tank" or selection == "nonTank" or (type(selection) == "table"
+                and (selection.tank == true or selection.nonTank == true)) then return true, true end
+        end
+    end
+    return needed, false
 end
 
 local CAST_COLOR_STATES = { "interruptible", "interruptOnCD", "uninterruptible" }
@@ -564,6 +630,9 @@ local function MatchesReadableConditions(rule, unit, traits)
         if value == "none" then return traits.targetExists == false end
         return false
     end) then return false end
+    if not AnySelectionMatches(c.threat, function(value)
+        return traits.threat and traits.threat[value] == true
+    end) then return false end
     if c.questObjective == "yes" and traits.questObjective ~= true then return false end
     if c.questObjective == "no" and traits.questObjective ~= false then return false end
     if not AnySelectionMatches(c.spellSchool, function(value)
@@ -577,7 +646,7 @@ local function MatchesReadableConditions(rule, unit, traits)
             local ok, matches = pcall(predicate, unit, traits, expected, rule)
             if not ok or SafeBool(matches) ~= true then return false end
         elseif key ~= "unitType" and key ~= "reaction" and key ~= "classification"
-           and key ~= "target" and key ~= "questObjective" and key ~= "castState" and key ~= "spellSchool" then
+           and key ~= "target" and key ~= "threat" and key ~= "questObjective" and key ~= "castState" and key ~= "spellSchool" then
             return false
         end
     end
@@ -631,7 +700,10 @@ local function FindCastColorOverridesWithSnapshot(unit, traits, snapshot)
     local settings = GetSettings()
     local colors = {}
     if settings.enabled == false then return colors end
-    traits = traits or GetTraits(unit, true)
+    if not traits then
+        local checkThreat, checkRoles = ThreatRequirements(settings.rules)
+        traits = GetTraits(unit, true, checkThreat, checkRoles)
+    end
     local matches = snapshot and MatchesWithSnapshot or Matches
     for index, rule in ipairs(settings.rules) do
         local style = rule.style
@@ -664,7 +736,8 @@ local function FindRuleWithSnapshot(unit, snapshot)
             break
         end
     end
-    local traits = GetTraits(unit, checkQuestObjective)
+    local checkThreat, checkRoles = ThreatRequirements(db.rules)
+    local traits = GetTraits(unit, checkQuestObjective, checkThreat, checkRoles)
     local matches = snapshot and MatchesWithSnapshot or Matches
     for index, rule in ipairs(db.rules) do
         if matches(rule, unit, traits, false, snapshot) then return rule, index, traits end
@@ -985,7 +1058,9 @@ local events = {
     "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED",
     "PLAYER_TARGET_CHANGED", "PLAYER_FOCUS_CHANGED", "PLAYER_ENTERING_WORLD",
     "UNIT_FLAGS", "UNIT_FACTION", "UNIT_NAME_UPDATE",
-    "UNIT_THREAT_LIST_UPDATE",
+    "UNIT_THREAT_LIST_UPDATE", "UNIT_THREAT_SITUATION_UPDATE",
+    "GROUP_ROSTER_UPDATE", "PLAYER_ROLES_ASSIGNED", "ROLE_CHANGED_INFORM",
+    "PLAYER_SPECIALIZATION_CHANGED", "ACTIVE_TALENT_GROUP_CHANGED", "PLAYER_REGEN_ENABLED", "PLAYER_REGEN_DISABLED",
     "UNIT_SPELLCAST_START", "UNIT_SPELLCAST_DELAYED", "UNIT_SPELLCAST_STOP", "UNIT_SPELLCAST_FAILED",
     "UNIT_SPELLCAST_INTERRUPTED", "UNIT_SPELLCAST_CHANNEL_START", "UNIT_SPELLCAST_CHANNEL_UPDATE", "UNIT_SPELLCAST_CHANNEL_STOP",
     "UNIT_SPELLCAST_EMPOWER_START", "UNIT_SPELLCAST_EMPOWER_UPDATE", "UNIT_SPELLCAST_EMPOWER_STOP",
@@ -1142,11 +1217,14 @@ SlashCmdList.NAMEPLATEEXTRAS = function(message)
     if not targetPlate then Report("No EUI full nameplate found for your target"); return end
     Report("unit=" .. Text(targetPlate.unit) .. "; health bar=" .. Text(targetPlate.health ~= nil)
         .. "; hooks installed=" .. Text(hooked[targetPlate] == true))
-    local ok, traits = pcall(GetTraits, targetPlate.unit)
+    local ok, traits = pcall(GetTraits, targetPlate.unit, false, true, true)
     if not ok then Report("Detection ERROR: " .. Text(traits)); return end
     Report("type=" .. Text(traits.unitType) .. "; reaction=" .. Text(traits.reaction)
         .. "; rank=" .. Text(traits.classification) .. "; target=" .. Text(traits.target)
         .. "; cast=" .. Text(traits.castState) .. "; interruptibility=" .. Text(traits.interruptible))
+    local threat = traits.threat or {}
+    Report("threat: tank=" .. Text(threat.tank) .. "; non-tank=" .. Text(threat.nonTank)
+        .. "; on me=" .. Text(threat.me) .. "; holder=" .. Text(threat.holder) .. "; role=" .. Text(threat.role))
     for index, rule in ipairs(db.rules) do
         local matched, result = pcall(Matches, rule, targetPlate.unit, traits)
         Report("rule " .. index .. " (" .. Text(rule.name) .. "): enabled=" .. Text(rule.enabled)

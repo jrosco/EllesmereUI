@@ -33,9 +33,11 @@ local function CheckTargets(phase)
 end
 CheckTargets("load")
 assert(api.CreateProfile("Starters"))
-Check(next(api.GetRules()[2].conditions.target) == nil, "starter elite permits non-targets")
-Check(next(api.GetRules()[3].conditions.target) == nil, "starter enemy casting permits non-targets")
-Check(api.GetRules()[1].conditions.target.yes == true, "starter current target retains Yes")
+local startersByName = {}
+for _, rule in ipairs(api.GetRules()) do startersByName[rule.name] = rule end
+Check(next(startersByName["Elite Enemies"].conditions.target) == nil, "starter elite permits non-targets")
+Check(next(startersByName["Enemy Casting"].conditions.target) == nil, "starter enemy casting permits non-targets")
+Check(startersByName["Current Target"].conditions.target.yes == true, "starter current target retains Yes")
 assert(api.SelectProfile("Default"))
 CheckTargets("switch")
 -- Model serialization/reload with a fresh root and fresh runtime locals.
@@ -55,6 +57,7 @@ local choices = {
     reaction = { "enemy", "friendly", "neutral" },
     classification = { "normal", "elite", "rare", "rareelite", "boss", "minus" },
     target = { "yes", "no", "none" },
+    threat = { "nonTank", "tank", "me" },
     castState = { "none", "casting", "channel", "empowered", "interruptible", "interruptOnCD", "uninterruptible" },
     spellSchool = { "physical", "holy", "fire", "nature", "frost", "shadow", "arcane", "mixed" },
 }

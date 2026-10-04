@@ -17,6 +17,8 @@ Categorical conditions use multi-select checklists: player/NPC/pet/creature, fri
 
 Target state separates three cases: **Current target** matches the selected unit; **Not current target** requires a selected target and matches other units; **No target selected** matches only when you have no target. Not current target no longer includes the no-target case, including for existing saved/imported rules. Select both Not current target and No target selected if you want that older combined behavior. Empty/Any still imposes no target restriction.
 
+Threat filters describe the **aggro holder**, not your character's role: **Tank threat** matches an enemy held by a tank; **Non-tank threat** matches one held by a Damage/Healer; **Threat on me** matches when you hold aggro, independently of your role. Choices combine with OR and other filter groups remain AND requirements. Detailed threat confirms the holder; an enemy's temporary spell target is not assumed to hold aggro. Current-target API pairings are used when available. Secret/unavailable threat data and unassigned/hidden roles cannot match the corresponding filter. Threat on me can still match with an unknown role. Empty/Any remains unrestricted and does not trigger threat scans.
+
 Empty or missing target selections stay unrestricted across reloads, profile switches, and imports; No-only selections stay No-only. The elite and enemy-casting starter rules also apply to non-targets. Earlier versions could add Yes to saved target selections during profile normalization. Existing Yes values are preserved because they may be intentional; review the Target state checklist if a rule previously changed behavior unexpectedly.
 
 Effects include health-bar color, whole-nameplate scale and opacity, an additional colored health-bar border, and a choice of EUI/flat/Blizzard health texture.
@@ -84,3 +86,5 @@ Focused follow-up suites are `tests/style-capability.lua`, `tests/cooldown-trans
 Run `lua EllesmereUINameplateExtras/tests/cast-appearances.lua` (or use Fengari) to verify that each color-state selection applies other appearances through implicit Casting without broadening its color mask. It covers known/secret/unavailable flags, channels/empowered casts, AND filters, ordinary first-match priority, and restoration at cast end. The cooldown suite separately exercises explicit extension predicates that require readable state knowledge.
 
 Run `lua EllesmereUINameplateExtras/tests/target-states.lua` (or use Fengari) for target-present/absent matching, retargeting and clearing-target appearance transitions, legacy scalar conditions, OR combinations, other AND filters, and restricted-value handling.
+
+Run `lua EllesmereUINameplateExtras/tests/threat.lua` (or use Fengari) for aggro-holder roles, Threat on me, party/raid lookup, temporary spell targets, restricted/missing data, API-call gating, AND/OR logic, and threat/role-change appearance refreshes.
