@@ -8,11 +8,11 @@ fixture.api.GetSettings().rules = { probe }
 fixture.mocks.casting = { "Cast", nil, nil, nil, nil, nil, nil, fixture.secret, fixture.secret }
 local painter, forwarded = namespace.ApplyCastStyle
 namespace.ApplyCastStyle = function(_, style, _, colors)
-    forwarded = style == nil and colors and colors.interruptible and colors.interruptible.rule == probe
+    forwarded = style == probe.style and colors and colors.interruptible and colors.interruptible.rule == probe
 end
 namespace.RefreshAll()
 namespace.ApplyCastStyle = painter
-assert(forwarded, "secret-cast color rule did not forward its palette independently of non-color matching")
+assert(forwarded, "secret-cast color rule must forward both appearance and state-specific palette")
 local plate = CreateFrame()
 plate.unit = "nameplate1"
 plate.cast = CreateFrame("StatusBar", nil, plate)
@@ -164,7 +164,7 @@ end
 local palette = Palette()
 assert(palette.interruptible.rule == readyRule and palette.interruptOnCD.rule == cooldownRule
     and palette.uninterruptible.rule == protectedRule, "first rule must win independently for each color state")
-assert(namespace.FindRule("nameplate1") == fallbackRule, "secret color rules must not steal non-color rule priority")
+assert(namespace.FindRule("nameplate1") == readyRule, "implicit Casting must use first-match appearance priority")
 namespace.ApplyCastStyle(plate, nil, nil, palette)
 offCooldown = true
 plate:ApplyCastColor(false)
@@ -177,19 +177,22 @@ Colors(protectedColor, protectedColor, "uninterruptible wins over cooldown")
 offCooldown = true
 plate:ApplyCastColor(true)
 Colors(protectedColor, protectedColor, "uninterruptible wins over ready")
--- Readable states may still drive ordinary effects; hidden states must not.
+-- State knowledge stays available for diagnostics/extensions; appearances use implicit Casting.
 secretMode = false
 fixture.mocks.casting[8] = false
 offCooldown = true
-assert(namespace.FindRule("nameplate1") == readyRule, "readable available-interrupt state should match Ready")
+local selected, _, traits = namespace.FindRule("nameplate1")
+assert(selected == readyRule and traits.castColorState == "interruptible", "ready knowledge with first appearance rule")
 offCooldown = false
-assert(namespace.FindRule("nameplate1") == cooldownRule, "readable cooldown state should match On cooldown")
+selected, _, traits = namespace.FindRule("nameplate1")
+assert(selected == readyRule and traits.castColorState == "interruptOnCD", "cooldown knowledge must not change broad appearance priority")
 fixture.mocks.casting[8] = true
-assert(namespace.FindRule("nameplate1") == protectedRule, "uninterruptible state takes precedence for ordinary matching too")
+selected, _, traits = namespace.FindRule("nameplate1")
+assert(selected == readyRule and traits.castColorState == "uninterruptible", "protected knowledge with implicit Casting appearances")
 fixture.mocks.casting[8] = fixture.secret
 secretMode = true
 fixture.api.GetSettings().rules = { readyRule, cooldownRule, protectedRule }
-assert(namespace.FindRule("nameplate1") == nil, "hidden color state must not select non-color effects")
+assert(namespace.FindRule("nameplate1") == readyRule, "hidden color state still permits implicit Casting appearances")
 fixture.api.GetSettings().rules = { readyRule, cooldownRule, protectedRule, fallbackRule }
 cooldownRule.enabled = false
 namespace.ApplyCastStyle(plate, nil, nil, Palette())

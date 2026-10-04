@@ -122,7 +122,7 @@ Reset()
 mocks.casting = { "Cast", nil, nil, nil, nil, nil, nil, secret, secret }
 api.GetRules()[1].conditions.castState = { interruptible = true }
 api.GetRules()[1].style = { castEnabled = true, castColorEnabled = true }
-Equal(namespace.FindRule("nameplate1"), nil, "secret Interruptible does not apply non-color effects")
+Equal(namespace.FindRule("nameplate1"), api.GetRules()[1], "secret Interruptible implies Casting for appearance effects")
 Equal(namespace.FindCastColorOverrides("nameplate1").interruptible ~= nil, true, "Interruptible supplies a secret-safe color candidate")
 api.GetRules()[1].conditions.castState = "interruptible"
 Equal(namespace.FindCastColorOverrides("nameplate1").interruptible ~= nil, true, "legacy scalar color selection remains supported")
@@ -177,7 +177,7 @@ tostring = originalTostring
 assert(ok, output)
 Contains(output, "interruptibility=unknown; knowledge=unknown (secret)", "debug unknown secret")
 Contains(output, "notInterruptible secret=true", "debug secret flag")
-Contains(output, "No winning nameplate rule.", "debug secret state does not claim a non-color winner")
+Contains(output, "Winning nameplate rule=1 (Trait probe)", "debug implicit Casting appearance winner")
 Contains(output, "Cast color interruptible=rule 1 (Trait probe)", "debug cast-color winner")
 mocks.casting[8] = false
 Contains(CastDebug(), "interruptibility=interruptible; knowledge=known", "debug known interruptible")

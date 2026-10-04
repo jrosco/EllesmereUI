@@ -579,14 +579,11 @@ end
 local function MatchesWithSnapshot(rule, unit, traits, forCastColors, snapshot)
     if not rule.enabled then return false end
     local c = rule.conditions or {}
-    -- Each path gates cast eligibility separately, before any custom callback.
-    -- Ordinary failure on a hidden color state must not poison native colors.
+    -- Color-state choices imply active Casting for appearance eligibility.
+    -- Their precise state is consumed only by the native cast-color renderer.
     if not AnySelectionMatches(c.castState, function(value)
-        if value == "casting" then
+        if value == "casting" or IsCastColorState(value) then
             return type(traits.castState) == "string" and traits.castState ~= "none"
-        elseif IsCastColorState(value) then
-            if forCastColors then return traits.castState ~= "none" end
-            return traits.castColorState == value
         end
         return traits.castState == value
     end) then return false end

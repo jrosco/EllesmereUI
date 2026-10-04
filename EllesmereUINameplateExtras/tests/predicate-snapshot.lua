@@ -91,21 +91,21 @@ Equal(byRule[ready], 1, "ordinary winner shared predicate count")
 Equal(byRule[cooldown], 1, "color-only lower rule predicate count")
 Equal(byRule[broad], 1, "broad lower rule predicate count")
 
--- Fail-closed ordinary state matching must not become cached color rejection.
+-- Color-state choices imply Casting, while color masks remain independently narrow.
 probe = Rule("Secret state", { interruptible = true })
 Reset({ probe }, function() return true end)
 mocks.casting[8] = fixture.secret
 namespace.RefreshAll()
-Equal(plate:GetScale(), 1, "secret state rejects ordinary scale")
-Equal(paints.nameplate1.style, nil, "secret state has no ordinary style")
+Equal(plate:GetScale(), 1.5, "secret state implies ordinary Casting scale")
+Equal(paints.nameplate1.style, probe.style, "secret state retains other appearances")
 Equal(paints.nameplate1.colors.interruptible.rule, probe, "secret state keeps native color candidate")
 Equal(paints.nameplate1.colors.uninterruptible, nil, "secret state respects narrow mask")
-Equal(calls, 1, "secret state invokes predicate only in color path")
+Equal(calls, 1, "secret state shares one predicate between appearance and color paths")
 namespace.RefreshAll()
 Equal(calls, 2, "secret color path reevaluates next refresh")
 mocks.casting[8] = nil
 namespace.RefreshAll()
-Equal(paints.nameplate1.style, nil, "unavailable state also rejects ordinary effects")
+Equal(paints.nameplate1.style, probe.style, "unavailable state still permits active-cast appearances")
 Equal(paints.nameplate1.colors.interruptible.rule, probe, "unavailable state retains native candidate")
 Equal(calls, 3, "unavailable state fresh callback")
 

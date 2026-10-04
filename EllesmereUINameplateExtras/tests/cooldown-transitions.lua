@@ -44,7 +44,7 @@ local restartCalls = 0
 function plate:UpdateCast() restartCalls = restartCalls + 1 end
 fixture.mocks.casting = { "Long cast", nil, nil, nil, nil, nil, nil, false, 123 }
 local function Rule(name, state, opacity, scale, border)
-    return { name = name, enabled = true, conditions = { castState = { [state] = true } },
+    return { name = name, enabled = true, conditions = { castState = { [state] = true }, appearanceState = state },
         style = { castEnabled = true, castOpacityEnabled = true, castOpacity = opacity,
             scale = scale, borderSize = 0, castBorderEnabled = border, castBorderSize = 3,
             healthColorEnabled = false } }
@@ -55,7 +55,19 @@ local protected = Rule("Protected", "uninterruptible", 60, 110, true)
 onCD.style.castColorEnabled, onCD.style.castColor = true, { r = 0.1, g = 0.2, b = 0.9 }
 available.style.castColorEnabled, available.style.castColor = true, { r = 0.8, g = 0.1, b = 0.1 }
 protected.style.castColorEnabled, protected.style.castColor = true, { r = 0.6, g = 0.1, b = 0.8 }
-api.GetSettings().rules = { onCD, available, protected }
+-- Built-in color selections now imply Casting for appearances. An extension may
+-- still explicitly require readable state knowledge, so transition tracking stays useful.
+api.RegisterCondition("appearanceState", function(_, traits, expected) return traits.castColorState == expected end)
+local function ColorRule(rule)
+    local color = rule.style.castColor
+    rule.style.castColorEnabled = false
+    return { name = rule.name .. " color", enabled = true,
+        conditions = { castState = rule.conditions.castState },
+        style = { castEnabled = true, castColorEnabled = true, castColor = color,
+            healthColorEnabled = false, borderSize = 0 } }
+end
+local colorRules = { ColorRule(onCD), ColorRule(available), ColorRule(protected) }
+api.GetSettings().rules = { onCD, available, protected, colorRules[1], colorRules[2], colorRules[3] }
 plate:ApplyCastColor(false)
 addon.RefreshAll()
 local function Near(actual, expected, label)
@@ -191,7 +203,7 @@ assert(scheduled == 0, "unrelated interruptibility event scheduled work")
 ready = fixture.secret
 plate:ApplyCastColor(false)
 fixture.Flush()
-Effects(1, 1, false, "opaque cooldown fails closed")
+Effects(1, 1, false, "explicit readable-state predicate rejects opaque cooldown")
 Near(fill.vertexColor[1], 0.8, "opaque ready cooldown still renders native ready color")
 hiddenReady = false
 ResetCounts()
@@ -204,16 +216,16 @@ plate:ApplyCastColor(false); fixture.Flush()
 Effects(0.8, 1.5, false, "cooldown readable again")
 fixture.mocks.casting[8] = fixture.secret
 plate:ApplyCastColor(false); fixture.Flush()
-Effects(1, 1, false, "opaque API interrupt flag fails closed")
+Effects(1, 1, false, "explicit readable-state predicate rejects opaque interrupt flag")
 fixture.mocks.casting[8] = nil
 plate:ApplyCastColor(false); fixture.Flush()
-Effects(1, 1, false, "unavailable interrupt flag fails closed")
+Effects(1, 1, false, "explicit readable-state predicate rejects unavailable flag")
 fixture.mocks.casting[8] = false
 plate:ApplyCastColor(false); fixture.Flush()
 fixture.mocks.secretBoolean = true
 fixture.mocks.casting[8] = true
 plate:ApplyCastColor(true); fixture.Flush()
-Effects(1, 1, false, "secret boolean protection fails closed")
+Effects(1, 1, false, "explicit readable-state predicate rejects secret protection")
 Near(fill.vertexColor[1], 0.6, "secret boolean protection retains native palette")
 fixture.mocks.secretBoolean = nil
 fixture.mocks.casting[8] = false
@@ -272,12 +284,14 @@ available.enabled = false
 api.Refresh(); fixture.Flush()
 Effects(1, 1, false, "winning rule disabled")
 onCD.enabled, protected.enabled = false, false
+for _, rule in ipairs(colorRules) do rule.enabled = false end
 api.Refresh(); fixture.Flush()
 ResetCounts()
 plate:ApplyCastColor(false)
 fixture.Fire("SPELL_UPDATE_COOLDOWN")
 assert(scheduled == 0, "disabled state rules still monitor transitions")
 available.enabled = true
+for _, rule in ipairs(colorRules) do rule.enabled = true end
 api.Refresh(); fixture.Flush()
 api.GetSettings().enabled = false
 api.Refresh(); fixture.Flush()

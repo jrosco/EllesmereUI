@@ -438,7 +438,7 @@ local function BuildRulesPage(parent, yOffset)
             "Matches any selected game classification: normal, elite, rare, rare elite, boss, or minor."),
         ConditionMultiDropdown("Target state", "target", TARGETS, TARGET_ORDER),
         ConditionMultiDropdown("Cast state", "castState", CAST_STATES, CAST_ORDER,
-            "Casting matches all active casts. Interruptible cast, Interrupt on CD, and Uninterruptible cast target EUI's three color states. For custom cast color, the first matching rule per state wins and secret-safe rendering selects the displayed state; unselected states keep EUI's colors. Casting need not be checked. Other effects require a readable matching state. Cast choices combine with OR."),
+            "Casting matches all active casts. Interruptible cast, Interrupt on CD, and Uninterruptible cast implicitly enable Casting for size, health styling, texture, opacity and borders without checking Casting. Those effects use the first matching active-cast rule. Custom cast colors remain state-specific: the first matching rule per color state wins and native rendering selects the displayed state. Other filters still combine with AND; cast choices combine with OR."),
         ConditionMultiDropdown("Spell school", "spellSchool", SCHOOLS, SCHOOL_ORDER,
             "Learns spell schools from combat-log cast starts while a school rule is enabled. Unknown spells do not match a specific school."),
     }

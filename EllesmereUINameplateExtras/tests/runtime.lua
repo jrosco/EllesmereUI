@@ -637,7 +637,7 @@ assert(castState.get("casting"), "Casting can be selected explicitly for all cas
 castState.set("casting", false)
 assert(not castState.get("casting"), "implicit Casting must not force its checkbox on")
 traitMocks.casting = { "Secret cast", nil, nil, nil, nil, nil, nil, secretValue, secretValue }
-assert(namespace.FindRule("nameplate1") == nil, "secret color state must not implicitly apply non-color effects")
+assert(namespace.FindRule("nameplate1") == api.GetRules()[1], "color-state selection must imply Casting for appearance effects")
 traitMocks.casting = nil
 castState.set("interruptible", false)
 castState.set("casting", true)
