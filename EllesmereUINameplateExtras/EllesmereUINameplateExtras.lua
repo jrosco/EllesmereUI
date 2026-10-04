@@ -4,7 +4,7 @@ local MULTI_CONDITION_VALUES = {
     unitType = { player = true, npc = true, pet = true, creature = true },
     reaction = { enemy = true, friendly = true, neutral = true },
     classification = { normal = true, elite = true, rare = true, rareelite = true, boss = true, minus = true },
-    target = { yes = true, no = true },
+    target = { yes = true, no = true, none = true },
     castState = { none = true, casting = true, channel = true, empowered = true, interruptible = true, interruptOnCD = true, uninterruptible = true },
     spellSchool = { physical = true, holy = true, fire = true, nature = true, frost = true, shadow = true, arcane = true, mixed = true },
 }
@@ -477,6 +477,7 @@ local function GetTraits(unit, checkQuestObjective)
     elseif type(classification) == "nil" then classification = "normal"
     elseif classification == "worldboss" then classification = "boss" end
     local castState, interruptible, spellSchool = ReadCast(unit)
+    local targetExists = SafeBool(UnitExists("target"))
     local isTarget = SafeBool(UnitIsUnit(unit, "target"))
     local questObjective
     if checkQuestObjective and NP and NP.IsQuestMob then
@@ -489,6 +490,7 @@ local function GetTraits(unit, checkQuestObjective)
         reaction = reaction,
         classification = classification,
         target = isTarget,
+        targetExists = targetExists,
         questObjective = questObjective,
         tapDenied = UnitIsTapDenied and SafeBool(UnitIsTapDenied(unit)),
         castState = castState,
@@ -550,12 +552,12 @@ local function MatchesReadableConditions(rule, unit, traits)
     end) then return false end
     if not AnySelectionMatches(c.reaction, function(value) return value == traits.reaction end) then return false end
     if not AnySelectionMatches(c.classification, function(value) return value == traits.classification end) then return false end
-    if c.target == "yes" and traits.target ~= true then return false end
-    if c.target == "no" and traits.target ~= false then return false end
-    if type(c.target) == "table" and HasSelection(c.target) then
-        local targetState = traits.target == true and "yes" or traits.target == false and "no" or nil
-        if not AnySelectionMatches(c.target, function(value) return value == targetState end) then return false end
-    end
+    if not AnySelectionMatches(c.target, function(value)
+        if value == "yes" then return traits.targetExists == true and traits.target == true end
+        if value == "no" then return traits.targetExists == true and traits.target == false end
+        if value == "none" then return traits.targetExists == false end
+        return false
+    end) then return false end
     if c.questObjective == "yes" and traits.questObjective ~= true then return false end
     if c.questObjective == "no" and traits.questObjective ~= false then return false end
     if not AnySelectionMatches(c.spellSchool, function(value)

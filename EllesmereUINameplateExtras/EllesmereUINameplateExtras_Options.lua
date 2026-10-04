@@ -10,8 +10,8 @@ local REACTIONS = { any = "Any reaction", enemy = "Enemy", friendly = "Friendly"
 local REACTION_ORDER = { "any", "enemy", "friendly", "neutral" }
 local CLASSIFICATIONS = { any = "Any rank", normal = "Normal", elite = "Elite", rare = "Rare", rareelite = "Rare Elite", boss = "Boss", minus = "Minor" }
 local CLASSIFICATION_ORDER = { "any", "normal", "elite", "rare", "rareelite", "boss", "minus" }
-local TARGETS = { any = "Any target state", yes = "Current target", no = "Not current target" }
-local TARGET_ORDER = { "any", "yes", "no" }
+local TARGETS = { any = "Any target state", yes = "Current target", no = "Not current target", none = "No target selected" }
+local TARGET_ORDER = { "any", "yes", "no", "none" }
 local CAST_STATES = {
     any = "Any cast state", none = "Not casting", casting = "Casting", channel = "Channeling",
     empowered = "Empowered cast", interruptible = "Interruptible cast", interruptOnCD = "Interrupt on CD", uninterruptible = "Uninterruptible cast",
@@ -436,7 +436,8 @@ local function BuildRulesPage(parent, yOffset)
         ConditionMultiDropdown("Reaction", "reaction", REACTIONS, REACTION_ORDER),
         ConditionMultiDropdown("Classification", "classification", CLASSIFICATIONS, CLASSIFICATION_ORDER,
             "Matches any selected game classification: normal, elite, rare, rare elite, boss, or minor."),
-        ConditionMultiDropdown("Target state", "target", TARGETS, TARGET_ORDER),
+        ConditionMultiDropdown("Target state", "target", TARGETS, TARGET_ORDER,
+            "Current target matches your selected unit. Not current target requires a selected target and matches all other units. No target selected matches units only while you have no target. Multiple selections combine with OR; leaving the list empty means Any."),
         ConditionMultiDropdown("Cast state", "castState", CAST_STATES, CAST_ORDER,
             "Casting matches all active casts. Interruptible cast, Interrupt on CD, and Uninterruptible cast implicitly enable Casting for size, health styling, texture, opacity and borders without checking Casting. Those effects use the first matching active-cast rule. Custom cast colors remain state-specific: the first matching rule per color state wins and native rendering selects the displayed state. Other filters still combine with AND; cast choices combine with OR."),
         ConditionMultiDropdown("Spell school", "spellSchool", SCHOOLS, SCHOOL_ORDER,

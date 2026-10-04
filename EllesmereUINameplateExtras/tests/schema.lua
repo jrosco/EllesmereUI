@@ -54,7 +54,7 @@ local choices = {
     unitType = { "player", "npc", "pet", "creature" },
     reaction = { "enemy", "friendly", "neutral" },
     classification = { "normal", "elite", "rare", "rareelite", "boss", "minus" },
-    target = { "yes", "no" },
+    target = { "yes", "no", "none" },
     castState = { "none", "casting", "channel", "empowered", "interruptible", "interruptOnCD", "uninterruptible" },
     spellSchool = { "physical", "holy", "fire", "nature", "frost", "shadow", "arcane", "mixed" },
 }

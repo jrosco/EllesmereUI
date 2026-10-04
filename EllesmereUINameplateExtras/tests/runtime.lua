@@ -74,7 +74,10 @@ local function Fire(event, ...)
     end
     Flush()
 end
-function UnitExists() return true end
+function UnitExists(unit)
+    if unit == "target" then return TraitValue("targetExists", true) end
+    return true
+end
 function UnitIsPlayer() return TraitValue("player", false) end
 function UnitFullName() return playerName, "TestRealm" end
 function UnitName() return playerName end
@@ -82,7 +85,9 @@ function GetRealmName() return "TestRealm" end
 function UnitPlayerControlled() return TraitValue("controlled", false) end
 function UnitCanAttack() return TraitValue("attackable", true) end
 function UnitReaction() return traitMocks.reaction end
-function UnitIsUnit(unit, other) return TraitValue("target", unit == "nameplate1" and other == "target") end
+function UnitIsUnit(unit, other)
+    return TraitValue("target", TraitValue("targetExists", true) == true and unit == "nameplate1" and other == "target")
+end
 function UnitClassification() return TraitValue("classification", "normal") end
 function UnitIsTapDenied() return tappedByOther end
 function UnitCastingInfo()
@@ -535,6 +540,20 @@ local castState = rows["Cast state"]
 local spellSchool = rows["Spell school"]
 assert(unitType and reaction and classification and targetState and castState and spellSchool,
     "categorical multi-select controls were not built")
+local hasNoTargetItem = false
+for _, item in ipairs(targetState.items) do
+    if item.key == "none" and item.label == "No target selected" then hasNoTargetItem = true end
+end
+assert(hasNoTargetItem, "Target state must expose No target selected")
+targetState.set("yes", false)
+targetState.set("none", true)
+assert(api.GetRules()[1].conditions.target.none, "no-target choice was not saved")
+traitMocks.targetExists = false
+assert(namespace.FindRule("nameplate1") == api.GetRules()[1], "UI no-target choice must match without a selected target")
+traitMocks.targetExists = nil
+assert(namespace.FindRule("nameplate1") == nil, "UI no-target choice must reject a selected target")
+targetState.set("none", false)
+targetState.set("yes", true)
 -- Custom-style color choices explain their lock and preserve selections across styles.
 local np = EllesmereNameplates_NS
 local originalStyle, originalDB, originalLatched = np.NP_Style, np.db, np._npStyle
