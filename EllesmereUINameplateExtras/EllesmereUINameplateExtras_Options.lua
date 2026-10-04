@@ -14,11 +14,27 @@ local TARGETS = { any = "Any target state", yes = "Current target", no = "Not cu
 local TARGET_ORDER = { "any", "yes", "no" }
 local CAST_STATES = {
     any = "Any cast state", none = "Not casting", casting = "Casting", channel = "Channeling",
-    empowered = "Empowered cast", interruptible = "Interruptible cast", uninterruptible = "Uninterruptible cast",
+    empowered = "Empowered cast", interruptible = "Interruptible cast", interruptOnCD = "Interrupt on CD", uninterruptible = "Uninterruptible cast",
 }
-local CAST_ORDER = { "any", "none", "casting", "channel", "empowered", "interruptible", "uninterruptible" }
+local CAST_ORDER = { "any", "none", "casting", "channel", "empowered", "interruptible", "interruptOnCD", "uninterruptible" }
 local SCHOOLS = { any = "Any spell school", physical = "Physical", holy = "Holy", fire = "Fire", nature = "Nature", frost = "Frost", shadow = "Shadow", arcane = "Arcane", mixed = "Mixed" }
 local SCHOOL_ORDER = { "any", "physical", "holy", "fire", "nature", "frost", "shadow", "arcane", "mixed" }
+
+local CUSTOM_CAST_STATES = { interruptible = true, interruptOnCD = true, uninterruptible = true }
+local CUSTOM_CAST_STYLE_TIP = "Enable EUI or Classic WoW UI nameplate style and reload the UI to use this cast-color state."
+local function CustomNameplateStyleEnabled()
+    local np = _G.EllesmereNameplates_NS
+    if not np then return false end
+    -- Use the latched rendering style, not a profile change awaiting reload.
+    if type(np.NP_Style) == "function" then
+        local style = np.NP_Style()
+        return style == "eui" or style == "classic"
+    end
+    if type(np._npStyle) == "string" then return np._npStyle == "eui" or np._npStyle == "classic" end
+    local profile = np.db and np.db.profile
+    -- Classic takes precedence if both flags are set, matching NP_Style.
+    return not profile or profile.useClassicStyle == true or not profile.useBlizzardStyle
+end
 
 local function GetBarTextureOptions()
     local np = _G.EllesmereNameplates_NS
@@ -362,7 +378,14 @@ local function BuildRulesPage(parent, yOffset)
     local function ConditionMultiDropdown(label, key, values, keys, tooltip)
         local items = {}
         for _, value in ipairs(keys) do
-            if value ~= "any" then items[#items + 1] = { key = value, label = values[value] } end
+            if value ~= "any" then
+                local item = { key = value, label = values[value] }
+                if key == "castState" and CUSTOM_CAST_STATES[value] then
+                    item.lockedFn = function() return not CustomNameplateStyleEnabled() end
+                    item.lockedTooltip = CUSTOM_CAST_STYLE_TIP
+                end
+                items[#items + 1] = item
+            end
         end
         local function GetSelection()
             local value = GetRule().conditions[key]
@@ -377,10 +400,17 @@ local function BuildRulesPage(parent, yOffset)
             emptyLabel = values.any,
             getSelected = function(option) return GetSelection()[option] == true end,
             setSelected = function(option, selected)
+                if key == "castState" and CUSTOM_CAST_STATES[option] and not CustomNameplateStyleEnabled() then return end
                 local current = GetRule()
                 local value = GetSelection()
                 current.conditions[key] = value
                 value[option] = selected and true or nil
+                if key == "castState" and selected and
+                    (option == "empowered" or option == "interruptible" or option == "interruptOnCD" or option == "uninterruptible") then
+                    -- A subtype does not expose the broad Casting checkbox as
+                    -- selected. Selecting Casting explicitly afterward means all.
+                    value.casting = nil
+                end
                 Changed()
             end,
         }
@@ -421,7 +451,8 @@ local function BuildRulesPage(parent, yOffset)
         ConditionMultiDropdown("Classification", "classification", CLASSIFICATIONS, CLASSIFICATION_ORDER,
             "Matches any selected game classification: normal, elite, rare, rare elite, boss, or minor."),
         ConditionMultiDropdown("Target state", "target", TARGETS, TARGET_ORDER),
-        ConditionMultiDropdown("Cast state", "castState", CAST_STATES, CAST_ORDER),
+        ConditionMultiDropdown("Cast state", "castState", CAST_STATES, CAST_ORDER,
+            "Casting matches all active casts. Interruptible cast, Interrupt on CD, and Uninterruptible cast target EUI's three color states. For custom cast color, the first matching rule per state wins and secret-safe rendering selects the displayed state; unselected states keep EUI's colors. Casting need not be checked. Other effects require a readable matching state. Cast choices combine with OR."),
         ConditionMultiDropdown("Spell school", "spellSchool", SCHOOLS, SCHOOL_ORDER,
             "Learns spell schools from combat-log cast starts while a school rule is enabled. Unknown spells do not match a specific school."),
     }
@@ -552,7 +583,7 @@ local function BuildRulesPage(parent, yOffset)
         }
     end
     local colorToggle = CastToggle("Custom cast color", "castColorEnabled")
-    colorToggle.tooltip = "Tints the normal and uninterruptible fill. Keeps the interrupted flash, shield, kick-ready indicator and important-cast effects. Blizzard artwork is tinted rather than replaced."
+    colorToggle.tooltip = "Overrides the selected EUI cast-color states: Interruptible cast (interrupt available), Interrupt on CD, or Uninterruptible cast. Rules are prioritized separately per color state, so separate rules can supply different colors. Explicit Casting overrides all three. Interrupted flashes, shield visibility and kick-ready indicators are preserved."
     _, h = W:DualRow(parent, y, colorToggle,
         CastColor("Cast fill color", "castColor", "castColorEnabled")); y = y - h
     _, h = W:DualRow(parent, y, {

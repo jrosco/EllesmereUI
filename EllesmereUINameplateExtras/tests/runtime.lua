@@ -534,6 +534,60 @@ local castState = rows["Cast state"]
 local spellSchool = rows["Spell school"]
 assert(unitType and reaction and classification and targetState and castState and spellSchool,
     "categorical multi-select controls were not built")
+-- Custom-style color choices explain their lock and preserve selections across styles.
+local np = EllesmereNameplates_NS
+local originalStyle, originalDB, originalLatched = np.NP_Style, np.db, np._npStyle
+local renderedStyle = "eui"
+np.NP_Style = function() return renderedStyle end
+local castItems = {}
+for _, item in ipairs(castState.items) do castItems[item.key] = item end
+local originalCastSelection = api.GetRules()[1].conditions.castState
+for _, key in ipairs({ "interruptible", "interruptOnCD", "uninterruptible" }) do
+    assert(castItems[key].lockedFn and not castItems[key].lockedFn(), "EUI cast color choice must be enabled")
+    assert(castItems[key].lockedTooltip:find("Enable EUI or Classic WoW UI", 1, true), "style lock must explain supported styles")
+    castState.set(key, true)
+end
+for _, style in ipairs({ "blizzard", "forever" }) do
+    renderedStyle = style
+    for _, key in ipairs({ "interruptible", "interruptOnCD", "uninterruptible" }) do
+        assert(castItems[key].lockedFn(), "Blizzard/Forever cast color choice must be inactive")
+        castState.set(key, false)
+        assert(castState.get(key), "inactive choices must preserve saved selections")
+    end
+    for _, key in ipairs({ "none", "casting", "channel", "empowered" }) do
+        assert(not castItems[key].lockedFn, "ordinary cast choices must remain available")
+    end
+end
+renderedStyle = "classic"
+for _, key in ipairs({ "interruptible", "interruptOnCD", "uninterruptible" }) do
+    assert(not castItems[key].lockedFn(), "Classic WoW UI cast color choice must be available")
+    castState.set(key, false)
+    assert(not castState.get(key), "Classic WoW UI must allow editing cast color choices")
+    castState.set(key, true)
+end
+renderedStyle = "blizzard"
+np.db = { profile = { useBlizzardStyle = true, useForeverStyle = true } }
+assert(castItems.interruptible.lockedFn(), "Forever variant uses Blizzard rendering and must remain locked")
+np.db = { profile = { useBlizzardStyle = false, useClassicStyle = false } }
+assert(castItems.interruptible.lockedFn(), "pending EUI profile change must not bypass latched Blizzard rendering")
+renderedStyle = "eui"
+np.db.profile.useBlizzardStyle = true
+assert(not castItems.interruptible.lockedFn(), "pending Blizzard profile change must not lock live EUI rendering")
+np.NP_Style, np._npStyle = nil, nil
+assert(castItems.interruptible.lockedFn(), "older API fallback must detect Blizzard style")
+np.db.profile.useBlizzardStyle, np.db.profile.useClassicStyle = false, true
+assert(not castItems.interruptible.lockedFn(), "older API fallback must allow Classic style")
+np.db.profile.useBlizzardStyle = true
+assert(not castItems.interruptible.lockedFn(), "Classic must take precedence when both flags are set")
+np._npStyle = "blizzard"
+assert(castItems.interruptible.lockedFn(), "cached Blizzard rendering stays locked despite pending Classic settings")
+np._npStyle = "classic"
+assert(not castItems.interruptible.lockedFn(), "cached Classic rendering must be allowed")
+np._npStyle = "eui"
+assert(not castItems.interruptible.lockedFn(), "cached rendering style takes precedence over profile flags")
+np.NP_Style, np.db, np._npStyle = originalStyle, originalDB, originalLatched
+api.GetRules()[1].conditions.castState = originalCastSelection
+for _, key in ipairs({ "interruptible", "interruptOnCD", "uninterruptible" }) do castState.set(key, false) end
 unitType.set("player", true)
 unitType.set("npc", true)
 assert(api.GetRules()[1].conditions.unitType.player and api.GetRules()[1].conditions.unitType.npc)
@@ -575,6 +629,25 @@ activeCast = "channel"
 assert(namespace.FindRule("nameplate1") == api.GetRules()[1], "channel state should match its selected alternative")
 castState.set("channel", false)
 activeCast = "casting"
+castState.set("interruptible", true)
+assert(not castState.get("casting"), "Interruptible must not visibly select Casting")
+castState.set("casting", true)
+assert(castState.get("casting"), "Casting can be selected explicitly for all casts")
+castState.set("casting", false)
+assert(not castState.get("casting"), "implicit Casting must not force its checkbox on")
+traitMocks.casting = { "Secret cast", nil, nil, nil, nil, nil, nil, secretValue, secretValue }
+assert(namespace.FindRule("nameplate1") == nil, "secret color state must not implicitly apply non-color effects")
+traitMocks.casting = nil
+castState.set("interruptible", false)
+castState.set("casting", true)
+castState.set("uninterruptible", true)
+assert(not castState.get("casting"), "Uninterruptible should replace broad Casting without exposing it")
+castState.set("uninterruptible", false)
+castState.set("casting", true)
+castState.set("empowered", true)
+assert(not castState.get("casting"), "Empowered should not expose implicit Casting")
+castState.set("empowered", false)
+castState.set("casting", false)
 spellSchool.set("fire", true)
 spellSchool.set("frost", true)
 assert(namespace.FindRule("nameplate1") == api.GetRules()[1], "spell-school alternatives should match active casts")

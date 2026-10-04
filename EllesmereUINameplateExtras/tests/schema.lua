@@ -55,7 +55,7 @@ local choices = {
     reaction = { "enemy", "friendly", "neutral" },
     classification = { "normal", "elite", "rare", "rareelite", "boss", "minus" },
     target = { "yes", "no" },
-    castState = { "none", "casting", "channel", "empowered", "interruptible", "uninterruptible" },
+    castState = { "none", "casting", "channel", "empowered", "interruptible", "interruptOnCD", "uninterruptible" },
     spellSchool = { "physical", "holy", "fire", "nature", "frost", "shadow", "arcane", "mixed" },
 }
 local function ExpectedConditions(key, value)
@@ -171,4 +171,11 @@ assert(normalized.conditions.extensionData == custom, "normalization replaced ex
 payload.version = 1
 local before = api.GetRules()
 assert(not api.ImportRuleSet(code) and api.GetRules() == before, "mismatched version accepted")
+payload.version = 2
+payload.rules[1].conditions.castState = { interruptible = true }
+assert(api.ImportRuleSet(code), "interruptible cast import failed")
+assert(api.GetRules()[1].conditions.castState.casting == nil, "import must not expose implicit Casting")
+assert(api.ExportRuleSet() == code)
+assert(payload.rules[1].conditions.castState.interruptible and payload.rules[1].conditions.castState.casting == nil,
+    "export exposed implicit cast selection")
 print("PASS: schema target reload/switch regressions, " .. cases .. " v1/v2 import cases, validation, custom conditions")

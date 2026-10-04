@@ -5,7 +5,7 @@ local MULTI_CONDITION_VALUES = {
     reaction = { enemy = true, friendly = true, neutral = true },
     classification = { normal = true, elite = true, rare = true, rareelite = true, boss = true, minus = true },
     target = { yes = true, no = true },
-    castState = { none = true, casting = true, channel = true, empowered = true, interruptible = true, uninterruptible = true },
+    castState = { none = true, casting = true, channel = true, empowered = true, interruptible = true, interruptOnCD = true, uninterruptible = true },
     spellSchool = { physical = true, holy = true, fire = true, nature = true, frost = true, shadow = true, arcane = true, mixed = true },
 }
 local SCALAR_CONDITION_VALUES = {
@@ -394,7 +394,7 @@ local function GetSchool(spellID)
     return spellSchools[spellID] or "unknown"
 end
 
-local function ReadCast(unit)
+local function ReadCast(unit, includeDebug)
     local name, _, _, _, _, _, _, notInterruptible, spellID = UnitCastingInfo(unit)
     local castState = "casting"
     if type(name) == "nil" then
@@ -407,12 +407,37 @@ local function ReadCast(unit)
             castState = "unknown"
         end
     end
-    if type(name) == "nil" then return "none", "any", "unknown" end
+    local debugInfo
+    if includeDebug then
+        local secret = IsSecret(notInterruptible) == true
+        debugInfo = {
+            source = type(name) == "nil" and "none" or (castState == "casting" and "UnitCastingInfo" or "UnitChannelInfo"),
+            secretCheckAvailable = type(issecretvalue) == "function",
+            secret = secret,
+            knowledge = secret and "unknown (secret)" or
+                (type(notInterruptible) == "boolean" and "known" or "unknown (unavailable)"),
+        }
+    end
+    if type(name) == "nil" then return "none", "any", "unknown", debugInfo end
     local interruptible = "unknown"
     if not IsSecret(notInterruptible) and type(notInterruptible) == "boolean" then
         interruptible = notInterruptible and "uninterruptible" or "interruptible"
     end
-    return castState, interruptible, GetSchool(spellID)
+    return castState, interruptible, GetSchool(spellID), debugInfo
+end
+
+local function KnownCastColorState(interruptible)
+    if interruptible == "uninterruptible" then return "uninterruptible" end
+    if interruptible ~= "interruptible" then return "unknown" end
+    local getKick = EllesmereUI and EllesmereUI.GetActiveKickSpell
+    local spell = getKick and getKick()
+    if not spell or not (C_Spell and C_Spell.GetSpellCooldownDuration)
+        or not (C_CurveUtil and C_CurveUtil.EvaluateColorValueFromBoolean) then return "interruptible" end
+    local cooldown = C_Spell.GetSpellCooldownDuration(spell)
+    if not (cooldown and cooldown.IsZero) then return "interruptible" end
+    local ready = SafeBool(cooldown:IsZero())
+    if ready == nil then return "unknown" end
+    return ready and "interruptible" or "interruptOnCD"
 end
 
 local function GetTraits(unit, checkQuestObjective)
@@ -454,6 +479,7 @@ local function GetTraits(unit, checkQuestObjective)
         tapDenied = UnitIsTapDenied and SafeBool(UnitIsTapDenied(unit)),
         castState = castState,
         interruptible = interruptible,
+        castColorState = KnownCastColorState(interruptible),
         spellSchool = spellSchool,
     }
 end
@@ -482,7 +508,12 @@ local function HasSelection(selection)
     return false
 end
 
-local function Matches(rule, unit, traits)
+local CAST_COLOR_STATES = { "interruptible", "interruptOnCD", "uninterruptible" }
+local function IsCastColorState(value)
+    return value == "interruptible" or value == "interruptOnCD" or value == "uninterruptible"
+end
+
+local function Matches(rule, unit, traits, forCastColors)
     if not rule.enabled then return false end
     local c = rule.conditions or {}
     if not AnySelectionMatches(c.unitType, function(value)
@@ -500,8 +531,11 @@ local function Matches(rule, unit, traits)
     if c.questObjective == "yes" and traits.questObjective ~= true then return false end
     if c.questObjective == "no" and traits.questObjective ~= false then return false end
     if not AnySelectionMatches(c.castState, function(value)
-        if value == "interruptible" or value == "uninterruptible" then
-            return traits.interruptible == value
+        if value == "casting" then
+            return type(traits.castState) == "string" and traits.castState ~= "none"
+        elseif IsCastColorState(value) then
+            if forCastColors then return traits.castState ~= "none" end
+            return traits.castColorState == value
         end
         return traits.castState == value
     end) then return false end
@@ -523,6 +557,42 @@ local function Matches(rule, unit, traits)
     return true
 end
 
+local function CastColorMask(selection, traits)
+    local mask = {}
+    local function Selected(key)
+        return selection == key or (type(selection) == "table" and selection[key] == true)
+    end
+    local broad = not HasSelection(selection) or Selected("casting")
+    if traits then
+        broad = broad or (Selected("channel") and traits.castState == "channel")
+            or (Selected("empowered") and traits.castState == "empowered")
+            or (Selected("none") and traits.castState == "none")
+    end
+    for _, key in ipairs(CAST_COLOR_STATES) do mask[key] = broad or Selected(key) end
+    return mask
+end
+addon.CastColorMask = CastColorMask
+
+local function FindCastColorOverrides(unit, traits)
+    local settings = GetSettings()
+    local colors = {}
+    if settings.enabled == false then return colors end
+    traits = traits or GetTraits(unit, true)
+    for index, rule in ipairs(settings.rules) do
+        local style = rule.style
+        if style and style.castEnabled and style.castColorEnabled and Matches(rule, unit, traits, true) then
+            local mask = CastColorMask(rule.conditions and rule.conditions.castState, traits)
+            local candidate = { rule = rule, style = style, index = index }
+            for _, key in ipairs(CAST_COLOR_STATES) do
+                if mask[key] and not colors[key] then colors[key] = candidate end
+            end
+            if colors.interruptible and colors.interruptOnCD and colors.uninterruptible then break end
+        end
+    end
+    return colors
+end
+addon.FindCastColorOverrides = FindCastColorOverrides
+
 local function FindRule(unit)
     GetSettings()
     if db.enabled == false then return nil end
@@ -539,6 +609,7 @@ local function FindRule(unit)
     for index, rule in ipairs(db.rules) do
         if Matches(rule, unit, traits) then return rule, index, traits end
     end
+    return nil, nil, traits
 end
 
 local function UpdateCombatLogRegistration()
@@ -579,8 +650,8 @@ local function ApplyAlpha(plate, state)
     state.writingAlpha = nil
 end
 
-local function ResetStyle(plate, state, released)
-    if addon.ApplyCastStyle then addon.ApplyCastStyle(plate, nil) end
+local function ResetStyle(plate, state, released, castColors)
+    if addon.ApplyCastStyle then addon.ApplyCastStyle(plate, nil, nil, castColors) end
     if state.border then state.border:Hide() end
     state.writingHealth = true
     if state.hadColor and state.baseColor and plate.health then
@@ -621,8 +692,9 @@ local function ApplyStyle(plate)
         state.hadColor, state.hadTexture = nil, nil
     end
     local rule, _, traits = FindRule(unit)
+    local castColors = FindCastColorOverrides(unit, traits)
     rule = rule and rule or nil
-    if not rule then ResetStyle(plate, state); return end
+    if not rule then ResetStyle(plate, state, false, castColors); return end
     local style = rule.style or {}
     state.rule = rule
     state.writingHealth = true
@@ -663,7 +735,7 @@ local function ApplyStyle(plate)
     SetScaleFactor(plate, state, scale)
     state.alphaFactor = opacity
     if plate.SetAlpha then ApplyAlpha(plate, state) end
-    if addon.ApplyCastStyle then addon.ApplyCastStyle(plate, style) end
+    if addon.ApplyCastStyle then addon.ApplyCastStyle(plate, style, rule.conditions, castColors) end
 end
 
 local InstallHooks
@@ -835,7 +907,40 @@ local publicAPI = {
 _G.EllesmereUINameplateExtras = publicAPI
 
 SLASH_NAMEPLATEEXTRAS1 = "/npextras"
-SlashCmdList.NAMEPLATEEXTRAS = function()
+SlashCmdList.NAMEPLATEEXTRAS = function(message)
+    if type(message) == "string" and message:lower():match("^%s*cast%s*$") then
+        local function ReportCast(text) print("Nameplate Extras: " .. text) end
+        if not UnitExists("target") then ReportCast("Cast debug: select a target first."); return end
+        local ok, castState, interruptible, _, debugInfo = pcall(ReadCast, "target", true)
+        if not ok then ReportCast("Cast debug: API read failed; state unknown."); return end
+        ReportCast("Target cast=" .. castState .. "; source=" .. debugInfo.source
+            .. "; interruptibility=" .. interruptible .. "; knowledge=" .. debugInfo.knowledge)
+        ReportCast("issecretvalue available=" .. tostring(debugInfo.secretCheckAvailable)
+            .. "; notInterruptible secret=" .. tostring(debugInfo.secret))
+        local known, colorState = pcall(KnownCastColorState, interruptible)
+        ReportCast("Known EUI color state=" .. (known and colorState or "unknown"))
+        if castState == "none" then
+            ReportCast("No active cast/channel. Run /npextras cast while the target is casting.")
+        elseif debugInfo.secret then
+            ReportCast("Lua cannot read the active color state; native rendering selects among the per-state overrides.")
+        end
+        local matched, rule, index = pcall(FindRule, "target")
+        if matched then
+            if rule then ReportCast("Winning nameplate rule=" .. index .. " (" .. tostring(rule.name) .. ")")
+            else ReportCast("No winning nameplate rule.") end
+        else
+            ReportCast("Target rule evaluation failed.")
+        end
+        local colorsOK, colors = pcall(FindCastColorOverrides, "target")
+        if colorsOK then
+            for _, key in ipairs(CAST_COLOR_STATES) do
+                local candidate = colors[key]
+                ReportCast("Cast color " .. key .. "=" .. (candidate and
+                    ("rule " .. candidate.index .. " (" .. tostring(candidate.rule.name) .. ")") or "EUI default"))
+            end
+        else ReportCast("Cast color evaluation failed.") end
+        return
+    end
     GetSettings()
     local function Text(value)
         if IsSecret(value) then return "<restricted>" end
@@ -876,7 +981,7 @@ SlashCmdList.NAMEPLATEEXTRAS = function()
     if not ok then Report("Detection ERROR: " .. Text(traits)); return end
     Report("type=" .. Text(traits.unitType) .. "; reaction=" .. Text(traits.reaction)
         .. "; rank=" .. Text(traits.classification) .. "; target=" .. Text(traits.target)
-        .. "; cast=" .. Text(traits.castState))
+        .. "; cast=" .. Text(traits.castState) .. "; interruptibility=" .. Text(traits.interruptible))
     for index, rule in ipairs(db.rules) do
         local matched, result = pcall(Matches, rule, targetPlate.unit, traits)
         Report("rule " .. index .. " (" .. Text(rule.name) .. "): enabled=" .. Text(rule.enabled)

@@ -52,7 +52,9 @@ Cast("channel", "unknown", "unknown", "unavailable interruptibility and school")
 mocks.channel[7], mocks.channel[8], mocks.channel[9] = secret, secret, secret
 Cast("unknown", "unknown", "unknown", "restricted channel metadata")
 api.GetRules()[1].conditions.castState = { casting = true, channel = true, empowered = true }
-Equal(namespace.FindRule("nameplate1"), nil, "unknown cast state must not match known-state rules")
+Equal(namespace.FindRule("nameplate1") ~= nil, true, "explicit Casting includes active casts with restricted kind metadata")
+api.GetRules()[1].conditions.castState = { channel = true, empowered = true }
+Equal(namespace.FindRule("nameplate1"), nil, "unknown cast kind must not match specific kind rules")
 api.GetRules()[1].conditions.castState = {}
 mocks.channel[9] = "true"
 Cast("unknown", "unknown", "unknown", "malformed empowerment flag")
@@ -116,4 +118,84 @@ Predicate(function() return secret end, false, "successful restricted sentinel r
 Predicate(function() mocks.secretBoolean = true; return true end, false, "successful secret-flagged boolean return")
 -- Plain Lua cannot forbid truth-testing a secret bool as Retail does; these mocks
 -- verify rejection through issecretvalue, with live-client validation still required.
+Reset()
+mocks.casting = { "Cast", nil, nil, nil, nil, nil, nil, secret, secret }
+api.GetRules()[1].conditions.castState = { interruptible = true }
+api.GetRules()[1].style = { castEnabled = true, castColorEnabled = true }
+Equal(namespace.FindRule("nameplate1"), nil, "secret Interruptible does not apply non-color effects")
+Equal(namespace.FindCastColorOverrides("nameplate1").interruptible ~= nil, true, "Interruptible supplies a secret-safe color candidate")
+api.GetRules()[1].conditions.castState = "interruptible"
+Equal(namespace.FindCastColorOverrides("nameplate1").interruptible ~= nil, true, "legacy scalar color selection remains supported")
+for _, selection in ipairs({ "casting", "interruptible", "interruptOnCD", "uninterruptible" }) do
+    api.GetRules()[1].conditions.castState = { [selection] = true }
+    mocks.casting = { "Cast", nil, nil, nil, nil, nil, nil, secret, secret }
+    mocks.channel = {}
+    local colorKey = selection == "casting" and "interruptible" or selection
+    Equal(namespace.FindCastColorOverrides("nameplate1")[colorKey] ~= nil, true, selection .. " colors ordinary cast")
+    mocks.casting = {}
+    mocks.channel = { "Channel", nil, nil, nil, nil, nil, secret, secret, false }
+    Equal(namespace.FindCastColorOverrides("nameplate1")[colorKey] ~= nil, true, selection .. " colors channel")
+    mocks.channel[9] = true
+    Equal(namespace.FindCastColorOverrides("nameplate1")[colorKey] ~= nil, true, selection .. " colors empowered cast")
+    mocks.channel[9] = secret
+    Equal(namespace.FindCastColorOverrides("nameplate1")[colorKey] ~= nil, true, selection .. " colors active unknown kind")
+    mocks.channel = {}
+    Equal(namespace.FindRule("nameplate1"), nil, selection .. " still requires an active cast")
+    Equal(next(namespace.FindCastColorOverrides("nameplate1")), nil, selection .. " supplies no candidate without cast")
+end
+api.GetRules()[1].conditions.castState = { empowered = true }
+mocks.casting = { "Cast", nil, nil, nil, nil, nil, nil, secret, secret }
+Equal(namespace.FindRule("nameplate1"), nil, "implicit empowered eligibility must not match ordinary casts")
+mocks.casting = {}
+mocks.channel = { "Channel", nil, nil, nil, nil, nil, secret, secret, false }
+Equal(namespace.FindRule("nameplate1"), nil, "empowered selection must not match ordinary channels")
+mocks.channel[9] = true
+Equal(namespace.FindRule("nameplate1") ~= nil, true, "empowered selection matches empowerment without explicit Casting")
+api.GetRules()[1].conditions.castState = { interruptible = true }
+mocks.casting = { "Cast", nil, nil, nil, nil, nil, nil, secret, secret }
+mocks.channel = {}
+mocks.target = true
+
+local function CastDebug()
+    local messages, originalPrint = {}, print
+    print = function(message) messages[#messages + 1] = message end
+    local ok, err = pcall(SlashCmdList.NAMEPLATEEXTRAS, "cast")
+    print = originalPrint
+    assert(ok, tostring(err))
+    return table.concat(messages, "\n")
+end
+local function Contains(text, expected, label)
+    Equal(text:find(expected, 1, true) ~= nil, true, label)
+end
+local originalTostring = tostring
+tostring = function(value)
+    assert(value ~= secret, "diagnostics tried to stringify a secret value")
+    return originalTostring(value)
+end
+local ok, output = pcall(CastDebug)
+tostring = originalTostring
+assert(ok, output)
+Contains(output, "interruptibility=unknown; knowledge=unknown (secret)", "debug unknown secret")
+Contains(output, "notInterruptible secret=true", "debug secret flag")
+Contains(output, "No winning nameplate rule.", "debug secret state does not claim a non-color winner")
+Contains(output, "Cast color interruptible=rule 1 (Trait probe)", "debug cast-color winner")
+mocks.casting[8] = false
+Contains(CastDebug(), "interruptibility=interruptible; knowledge=known", "debug known interruptible")
+mocks.casting[8] = true
+Contains(CastDebug(), "interruptibility=uninterruptible; knowledge=known", "debug known uninterruptible")
+mocks.casting[8] = nil
+Contains(CastDebug(), "knowledge=unknown (unavailable)", "debug unavailable metadata")
+mocks.casting = {}
+mocks.channel = { "Channel", nil, nil, nil, nil, nil, secret, 456, false }
+Contains(CastDebug(), "source=UnitChannelInfo", "debug channel source")
+mocks.channel = {}
+Contains(CastDebug(), "No active cast/channel", "debug no cast")
+local originalCasting = UnitCastingInfo
+UnitCastingInfo = function() error("API failure") end
+Contains(CastDebug(), "API read failed", "debug API error")
+UnitCastingInfo = originalCasting
+local originalExists = UnitExists
+UnitExists = function() return false end
+Contains(CastDebug(), "select a target first", "debug missing target")
+UnitExists = originalExists
 print("PASS: " .. cases .. " focused cast, reaction, restricted-trait and predicate checks")

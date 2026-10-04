@@ -19,13 +19,44 @@ local function ResolveTexturePath(key)
 end
 
 local function PaintColor(plate, state, texture, entry)
-    local style = state.style
-    local override = style and style.castColorEnabled and not plate._interrupted
+    local colors = state.castColors
+    local override = colors and next(colors) and not plate._interrupted
+    local r, g, b = entry.color[1], entry.color[2], entry.color[3]
+    if override then
+        local function Color(candidate)
+            return candidate and (candidate.style.castColor or defaults.castColor)
+        end
+        if colors.interruptible and colors.interruptible == colors.interruptOnCD
+            and colors.interruptible == colors.uninterruptible then
+            -- One all-casts rule does not depend on either secret boolean.
+            local color = Color(colors.interruptible)
+            r, g, b = color.r, color.g, color.b
+        else
+            local base = { r = r, g = g, b = b }
+            local normal = Color(colors.interruptible) or base
+            local onCD = Color(colors.interruptOnCD) or base
+            local protectedColor = Color(colors.uninterruptible) or base
+            local np = _G.EllesmereNameplates_NS
+            local compute = (np and np.ComputeCastBarTint) or (EllesmereUI and EllesmereUI.ComputeCastBarTint)
+            if compute then r, g, b = compute(onCD, normal)
+            else r, g, b = normal.r, normal.g, normal.b end
+            -- Match EUI precedence: cooldown folds first, uninterruptible wins.
+            local protected = plate._kickProtected
+            local evaluate = C_CurveUtil and C_CurveUtil.EvaluateColorValueFromBoolean
+            if type(protected) ~= "boolean" then override = false
+            elseif evaluate then
+                r = evaluate(protected, protectedColor.r, r)
+                g = evaluate(protected, protectedColor.g, g)
+                b = evaluate(protected, protectedColor.b, b)
+            elseif not (issecretvalue and issecretvalue(protected)) then
+                if protected then r, g, b = protectedColor.r, protectedColor.g, protectedColor.b end
+            else override = false end
+        end
+    end
     if not override and not entry.owned then return end
     state.writing = true
     if override then
-        local color = style.castColor or defaults.castColor
-        texture:SetVertexColor(color.r, color.g, color.b, entry.color[4])
+        texture:SetVertexColor(r, g, b, entry.color[4])
     else
         texture:SetVertexColor(unpack(entry.color))
     end
@@ -64,13 +95,22 @@ local function ApplyOpacity(plate, state)
     state.opacityOwned = override and true or false
 end
 
-function addon.ApplyCastStyle(plate, style)
+function addon.ApplyCastStyle(plate, style, conditions, castColors)
     local cast = plate.cast
     if not cast then return end -- EUI friendly/name-only plates have no cast bar.
     if not (style and style.castEnabled) then style = nil end
+    if castColors == nil then
+        -- Preserve direct callers; the runtime supplies a separately prioritized palette.
+        castColors = {}
+        if style and style.castColorEnabled then
+            local mask = addon.CastColorMask(conditions and conditions.castState)
+            local candidate = { style = style }
+            for key, selected in pairs(mask) do if selected then castColors[key] = candidate end end
+        end
+    end
     local state = states[plate]
     if not state then
-        if not style then return end
+        if not style and not next(castColors) then return end
         local fill = cast:GetStatusBarTexture()
         state = {
             colors = setmetatable({}, { __mode = "k" }),
@@ -84,8 +124,22 @@ function addon.ApplyCastStyle(plate, style)
             state.baseAlpha = alpha
             ApplyOpacity(plate, state)
         end)
+        if type(plate.ApplyCastColor) == "function" then
+            hooksecurefunc(plate, "ApplyCastColor", function()
+                -- Interruptibility can flip without repainting the overlay RGB.
+                -- Refresh both layers using the new raw stamp and saved base paint.
+                local currentFill = cast:GetStatusBarTexture()
+                local currentOverlay = plate.castBarOverlay
+                local fillColor = state.colors[currentFill]
+                local overlayColor = currentOverlay and state.colors[currentOverlay]
+                if fillColor then PaintColor(plate, state, currentFill, fillColor) end
+                if overlayColor then PaintColor(plate, state, currentOverlay, overlayColor) end
+            end)
+        end
     end
     state.style = style
+    state.conditions = style and conditions or nil
+    state.castColors = castColors
     local fill = cast:GetStatusBarTexture()
     local engineFill, previousFill = fill, state.fill or fill
     local fillEntry = WatchColor(plate, state, fill)
@@ -171,6 +225,6 @@ if NP and NP.ApplyCastBarTexture then
         state.baseTexture = fill and fill:GetTexture()
         state.baseOverlay = plate.castBarOverlay and plate.castBarOverlay:GetTexture()
         state.appliedTexture = nil
-        addon.ApplyCastStyle(plate, state.style)
+        addon.ApplyCastStyle(plate, state.style, state.conditions, state.castColors)
     end)
 end
