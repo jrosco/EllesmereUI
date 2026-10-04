@@ -225,9 +225,18 @@ local W = {}
 for _, key in ipairs({ "SectionHeader", "Dropdown", "Toggle", "Slider", "DualRow", "WideTripleButton", "WideDualButton" }) do
     W[key] = Row
 end
+function W:Button(parent)
+    local row = CreateFrame("Frame", nil, parent)
+    local button = CreateFrame("Button", nil, row)
+    function row:GetChildren() return button end
+    return row, 50
+end
 local spec, castDropdown
 EllesmereUI.Widgets = W
-EllesmereUI.PanelPP = { Point = function(frame, ...) frame:SetPoint(...) end }
+EllesmereUI.CONTENT_PAD = 20
+EllesmereUI.PanelPP = { Point = function(frame, ...) frame:SetPoint(...) end,
+    Size = function(frame, ...) frame:SetSize(...) end }
+EllesmereUI.MakeStyledButton = Noop
 EllesmereUI.MakeFont = function(parent) return parent:CreateFontString() end
 EllesmereUI.L = function(text) return text end
 EllesmereUI.IsSearchPrebuild = function() return false end

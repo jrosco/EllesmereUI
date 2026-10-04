@@ -81,7 +81,7 @@ function W:DualRow(_, y, left, right)
     for i, cfg in ipairs({ left, right }) do
         local region = i == 1 and row._leftRegion or row._rightRegion
         region._slotLabel = cfg.text
-        fields[cfg.text] = { get = cfg.getValue, set = cfg.setValue }
+        fields[cfg.text] = { get = cfg.getValue, set = cfg.setValue, values = cfg.values, row = row }
     end
     return row, h
 end
@@ -249,6 +249,8 @@ local function SectionsTest()
         assert(liveSections[section], "stale exact search destination for " .. label .. ": " .. section)
     end
     assert(fields["Rule name"].get() == "Renamed second rule", "selected rule context missing")
+    assert(fields["Edit rule"].row == fields["Rule name"].row, "selector and name need one shared settings row")
+    assert(fields["Nameplate size (%)"].row == fields["Opacity (%)"].row, "nameplate appearance sliders need one shared row")
     assert(fields["Edit rule"].values["2"]:find("Renamed second rule", 1, true), "selector context stale")
     assert(fields["Edit rule"].values["2"] == "[2] Renamed second rule", "rule priority/name format incorrect")
     print("PASS sections: first-indexed exact destinations survive selection and rename; current name/position visible")
@@ -269,28 +271,32 @@ local function ActionsTest()
         y, height = y - row:GetHeight(), height + row:GetHeight()
     end
     print("Action reflow evidence: " .. #actionRows .. " tagged rows, " .. height .. "px consumed")
-    assert(#actionRows == 2 and height == 114, "five actions must reflow as two supported composite rows")
+    assert(#actionRows == 1 and height == 50, "five actions must reflow as one shared row")
     for i, text in ipairs(actions) do
         local action = fields[text]
         assert(action.row.point[4] == 20, "search retained a staircase horizontal offset")
         assert(action.button.point[2] == action.row, "button detached from reflow container")
         assert(action.button.point[5] == 0, "buttons must share their row's vertical center")
-        assert(math.abs(action.button.point[4]) + action.button.width / 2 <= action.row.width / 2,
+        assert(action.button.point[4] >= 0 and action.button.point[4] + action.button.width <= action.row.width + 0.001,
             "action button extends beyond its row")
-        assert(action.row == actionRows[i <= 3 and 1 or 2], "action grouping/order changed")
+        assert(action.row == actionRows[1], "action grouping changed")
+        if i > 1 then
+            local previous = fields[actions[i - 1]].button
+            assert(action.button.point[4] >= previous.point[4] + previous.width + 7.99, "action buttons overlap or changed order")
+        end
         assert(index[text], "individual action search label missing")
         assert(type(action.click) == "function", "action callback missing")
     end
     -- Clearing search restores row anchors, preserving every child-relative anchor.
     for _, row in ipairs(actionRows) do row:SetPoint(unpack(row._origAnchor)) end
-    assert(actionRows[2].point[5] == actionRows[1].point[5] - 57, "normal rows overlap")
+    assert(actionRows[1].point[5] == actionRows[1]._origAnchor[5], "clearing search did not restore the action row")
     fields["Move Rule Down"].click()
     assert(db.selectedRule == 2 and db.rules[2].name == "First rule", "move callback changed")
     fields["Copy Rule"].click()
     assert(db.selectedRule == 3 and db.rules[3].name == "First rule Copy", "copy callback changed")
     fields["Add Rule"].click()
     assert(db.selectedRule == 1 and #db.rules == 4, "add callback changed")
-    print("PASS actions: two full-width search rows; child-relative buttons; restore and action callbacks")
+    print("PASS actions: one full-width search row; five child-relative buttons; restore and action callbacks")
 end
 if not case or case == "prebuild" then PrebuildTest() end
 if not case or case == "sections" then SectionsTest() end

@@ -324,11 +324,12 @@ function W:SectionHeader(_, text)
     sectionHeaders[#sectionHeaders + 1] = text
     return {}, 40
 end
-function W:Button(_, text, y, click)
-    local row, button = CreateFrame(), CreateFrame()
+function W:Button(parent, text, y, click)
+    if EllesmereUI.IsSearchPrebuild() then return {}, 50 end
+    local row = CreateFrame("Frame", nil, parent)
+    local button = CreateFrame("Button", nil, row)
     function row:GetChildren() return button end
     rows[text] = { click = click, row = row, button = button, y = y }
-    if EllesmereUI.IsSearchPrebuild() then return {}, 50 end
     return row, 50
 end
 function W:WideButton(_, text, _, click)
@@ -377,11 +378,12 @@ function W:DualRow(_, _, config, right)
         end
         return row, 50
     end
+    local row = CreateFrame()
     for _, cfg in ipairs({ config, right }) do
         if cfg.type == "colorpicker" then assert(type(cfg.getValue()) == "number") end
-        rows[cfg.text] = { get = cfg.getValue, set = cfg.setValue, disabled = cfg.disabled, values = cfg.values }
+        rows[cfg.text] = { get = cfg.getValue, set = cfg.setValue, disabled = cfg.disabled, values = cfg.values, row = row }
     end
-    return {}, 50
+    return row, 50
 end
 function W:ColorPicker(_, text, _, get, set)
     assert(type(get()) == "number", "color getter must return RGB components")
@@ -407,6 +409,9 @@ end
 local exportedPopup, importedPopup, legacyImportPopup, deleteConfirm
 EllesmereUI = {
     Widgets = W,
+    MakeStyledButton = function(button, text, _, _, click)
+        rows[text] = { click = click, row = button.parent, button = button }
+    end,
     MakeFont = function(parent) return parent:CreateFontString() end,
     L = function(text) return text end,
     RegisterWidgetRefresh = Noop,
@@ -458,6 +463,8 @@ assert(spec.label == "Nameplate Extras")
 assert(spec.modules[1].key == "NameplateStyle" and spec.modules[1].title == "Nameplate Style")
 assert(spec.modules[1].pages[2] == "Profiles" and spec.modules[1].pages[3] == "Sharing")
 spec.modules[1].buildPage("Rules", parent, 0)
+assert(rows["Edit rule"].row == rows["Rule name"].row, "selector and name must share a row")
+assert(rows["Nameplate size (%)"].row == rows["Opacity (%)"].row, "nameplate size and opacity must share a row")
 local masterToggle = assert(rows["Enable rule styling"], "Rules page is missing the global toggle")
 local storedRules, storedSelection = api.GetRules(), api.GetSettings().selectedRule
 local enabledFlags = {}
@@ -581,9 +588,9 @@ assert(HasHeader("APPEARANCE - CAST BAR"))
 local actions = { "Add Rule", "Copy Rule", "Delete Rule", "Move Rule Up", "Move Rule Down" }
 for index, text in ipairs(actions) do
     local action = rows[text]
-    assert(action.row == rows[actions[index <= 3 and 1 or 4]].row, "action composite grouping changed")
+    assert(action.row == rows[actions[1]].row, "all five actions must share one row")
+    assert(action.button.point[2] == action.row and action.button.point[5] == 0, "button anchor must stay relative to shared row")
 end
-assert(rows["Add Rule"].row ~= rows["Move Rule Up"].row, "management and ordering need separate rows")
 rows["Nameplate size (%)"].set(120)
 rows["Health-bar color"].set(0.9, 0.8, 0.7)
 Flush()

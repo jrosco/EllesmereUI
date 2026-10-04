@@ -265,15 +265,15 @@ local function BuildRulesPage(parent, yOffset)
         labels[key] = ("[%d] %s"):format(i, item.name or ("Rule " .. i))
         order[#order + 1] = key
     end
-    _, h = W:Dropdown(parent, "Edit rule", y, labels,
-        function() return tostring(DB().selectedRule or 1) end,
-        function(value)
+    _, h = W:DualRow(parent, y, {
+        type = "dropdown", text = "Edit rule", values = labels, order = order,
+        getValue = function() return tostring(DB().selectedRule or 1) end,
+        setValue = function(value)
             DB().selectedRule = tonumber(value) or 1
             Rebuild()
-        end, order,
-        "Rules are checked from top to bottom; the first enabled match wins. New rules start enabled for your current target.")
-    y = y - h
-    _, h = W:DualRow(parent, y, {
+        end,
+        tooltip = "Rules are checked from top to bottom; the first enabled match wins. New rules start enabled for your current target.",
+    }, {
         type = "input",
         text = "Rule name",
         inputWidth = 260,
@@ -287,16 +287,18 @@ local function BuildRulesPage(parent, yOffset)
             rule.name = name
             Rebuild()
         end,
-    }, nil); y = y - h
-    -- Supported composites stay together when inline search reflows tagged rows.
-    _, h = W:WideTripleButton(parent, "Add Rule", "Copy Rule", "Delete Rule", y, function()
+    }); y = y - h
+    local actions = {}
+    local function Action(text, onClick) actions[#actions + 1] = { text = text, onClick = onClick } end
+    Action("Add Rule", function()
         local current = DB()
         if #current.rules >= MAX_RULES then return end
         table.insert(current.rules, 1, NewRule(#current.rules + 1))
         current.selectedRule = 1
         Rebuild()
         Changed()
-    end, function()
+    end)
+    Action("Copy Rule", function()
         local current = DB()
         if #current.rules >= MAX_RULES then return end
         local index = current.selectedRule
@@ -317,7 +319,8 @@ local function BuildRulesPage(parent, yOffset)
         current.selectedRule = index + 1
         Rebuild()
         Changed()
-    end, function()
+    end)
+    Action("Delete Rule", function()
         local current = DB()
         if #current.rules <= 1 then return end
         local rule = current.rules[current.selectedRule]
@@ -347,9 +350,8 @@ local function BuildRulesPage(parent, yOffset)
                 Changed()
             end,
         })
-    end, 205)
-    y = y - h
-    _, h = W:WideDualButton(parent, "Move Rule Up", "Move Rule Down", y, function()
+    end)
+    Action("Move Rule Up", function()
         local current = DB()
         local index = current.selectedRule
         if index <= 1 then return end
@@ -357,7 +359,8 @@ local function BuildRulesPage(parent, yOffset)
         current.selectedRule = index - 1
         Rebuild()
         Changed()
-    end, function()
+    end)
+    Action("Move Rule Down", function()
         local current = DB()
         local index = current.selectedRule
         if index >= #current.rules then return end
@@ -365,7 +368,51 @@ local function BuildRulesPage(parent, yOffset)
         current.selectedRule = index + 1
         Rebuild()
         Changed()
-    end, 205)
+    end)
+    if EllesmereUI.IsSearchPrebuild() then
+        -- Index each action through the frameless factory without creating UI.
+        for i, action in ipairs(actions) do
+            local _, height = W:Button(parent, action.text, y, action.onClick)
+            if i == 1 then h = height end
+        end
+    else
+        -- One search/layout row owns all five controls, so search cannot split
+        -- independently tagged wrappers into separate vertical positions.
+        local row
+        row, h = W:Button(parent, actions[1].text, y, actions[1].onClick)
+        local PP, pad = EllesmereUI.PanelPP, EllesmereUI.CONTENT_PAD
+        local width, gap = parent:GetWidth() - pad * 2, 8
+        local buttonWidth = (width - gap * (#actions - 1)) / #actions
+        PP.Size(row, width, h)
+        PP.Point(row, "TOPLEFT", parent, "TOPLEFT", pad, y)
+        local firstButton = row:GetChildren()
+        local names, localizedNames = {}, {}
+        for i, action in ipairs(actions) do
+            names[i], localizedNames[i] = action.text, EllesmereUI.L(action.text)
+            local button = firstButton
+            if i > 1 then
+                button = CreateFrame("Button", nil, row)
+                button:SetFrameLevel(row:GetFrameLevel() + 1)
+                EllesmereUI.MakeStyledButton(button, action.text, 13, EllesmereUI.RB_COLOURS, action.onClick)
+                local wi = EllesmereUI._widgetInternals
+                if wi and wi.IndexSlotForSearch then
+                    wi.IndexSlotForSearch(parent, action.text)
+                elseif EllesmereUI._RegisterSearchEntry then
+                    local section = parent._currentSection and parent._currentSection._sectionName
+                    local selector = EllesmereUI._buildingSelector
+                    EllesmereUI._RegisterSearchEntry(action.text, localizedNames[i], nil,
+                        EllesmereUI._buildingModule, EllesmereUI._buildingPage, section,
+                        selector and selector.setter, selector and selector.key)
+                end
+            end
+            button:ClearAllPoints()
+            PP.Size(button, buttonWidth, 32)
+            PP.Point(button, "LEFT", row, "LEFT", (i - 1) * (buttonWidth + gap), 0)
+        end
+        row._labelText = table.concat(names, " ")
+        local localized = table.concat(localizedNames, " ")
+        row._labelTextLoc = localized ~= row._labelText and localized or nil
+    end
     y = y - h
 
     _, h = W:SectionHeader(parent, "MATCH CONDITIONS", y); y = y - h
@@ -489,15 +536,17 @@ local function BuildRulesPage(parent, yOffset)
     if not EllesmereUI.IsSearchPrebuild() then BuildConditionMultiDropdown(threatRow._leftRegion, threat) end
     y = y - h
     _, h = W:SectionHeader(parent, "APPEARANCE - NAMEPLATE", y); y = y - h
-    _, h = W:Slider(parent, "Nameplate size (%)", y, 50, 200, 5,
-        function() return GetRule().style.scale or 100 end,
-        function(value) GetRule().style.scale = value; Changed() end,
-        "Scales the whole nameplate. 100% uses EUI's normal size.")
-    y = y - h
-    _, h = W:Slider(parent, "Opacity (%)", y, 0, 100, 5,
-        function() return GetRule().style.opacity or 100 end,
-        function(value) GetRule().style.opacity = value; Changed() end,
-        "Multiplies the nameplate's current EUI opacity by this value.")
+    _, h = W:DualRow(parent, y, {
+        type = "slider", text = "Nameplate size (%)", min = 50, max = 200, step = 5,
+        getValue = function() return GetRule().style.scale or 100 end,
+        setValue = function(value) GetRule().style.scale = value; Changed() end,
+        tooltip = "Scales the whole nameplate. 100% uses EUI's normal size.",
+    }, {
+        type = "slider", text = "Opacity (%)", min = 0, max = 100, step = 5,
+        getValue = function() return GetRule().style.opacity or 100 end,
+        setValue = function(value) GetRule().style.opacity = value; Changed() end,
+        tooltip = "Multiplies the nameplate's current EUI opacity by this value.",
+    })
     y = y - h
     _, h = W:SectionHeader(parent, "APPEARANCE - HEALTH BAR", y); y = y - h
     _, h = W:Toggle(parent, "Override health bar", y,
