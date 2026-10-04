@@ -15,22 +15,28 @@ local DEFAULT_CONDITIONS = { questObjective = "any" }
 
 local DEFAULT_RULES = {
     {
-        name = "Current Target",
-        enabled = true,
-        conditions = { unitType = {}, reaction = {}, classification = {}, target = { yes = true }, questObjective = "any", castState = {}, spellSchool = {} },
-        style = { healthColorEnabled = true, healthColor = { r = 0.12, g = 0.92, b = 0.67 }, scale = 115, opacity = 100, borderSize = 2, borderColor = { r = 0.12, g = 0.92, b = 0.67 }, texture = "eui" },
-    },
-    {
         name = "Elite Enemies",
         enabled = true,
         conditions = { unitType = {}, reaction = { enemy = true }, classification = { elite = true }, target = {}, questObjective = "any", castState = {}, spellSchool = {} },
-        style = { healthColorEnabled = true, healthColor = { r = 0.72, g = 0.36, b = 1.00 }, scale = 105, opacity = 100, borderSize = 2, borderColor = { r = 0.72, g = 0.36, b = 1.00 }, texture = "eui" },
+        style = { healthColorEnabled = true, healthColor = { r = 0.72, g = 0.36, b = 1.00 }, scale = 105, opacity = 100, borderSize = 1, borderColor = { r = 1.00, g = 1.00, b = 1.00 }, texture = "eui" },
     },
     {
         name = "Enemy Casting",
         enabled = true,
         conditions = { unitType = {}, reaction = { enemy = true }, classification = {}, target = {}, questObjective = "any", castState = { casting = true }, spellSchool = {} },
-        style = { healthColorEnabled = true, healthColor = { r = 1.00, g = 0.28, b = 0.18 }, scale = 100, opacity = 100, borderSize = 2, borderColor = { r = 1.00, g = 0.28, b = 0.18 }, texture = "eui" },
+        style = { healthColorEnabled = true, healthColor = { r = 1.00, g = 0.28, b = 0.18 }, scale = 100, opacity = 100, borderSize = 1, borderColor = { r = 1.00, g = 1.00, b = 1.00 }, texture = "eui" },
+    },
+    {
+        name = "Current Target",
+        enabled = true,
+        conditions = { unitType = {}, reaction = {}, classification = {}, target = { yes = true }, questObjective = "any", castState = {}, spellSchool = {} },
+        style = { healthColorEnabled = true, healthColor = { r = 0.12, g = 0.92, b = 0.67 }, scale = 115, opacity = 100, borderSize = 1, borderColor = { r = 1.00, g = 1.00, b = 1.00 }, texture = "eui" },
+    },
+    {
+        name = "Non Target",
+        enabled = true,
+        conditions = { unitType = {}, reaction = {}, classification = {}, target = { yes = false }, questObjective = "any", castState = {}, spellSchool = {} },
+        style = { healthColorEnabled = true, healthColor = { r = 0.12, g = 0.92, b = 0.67 }, scale = 100, opacity = 75, borderSize = 1, borderColor = { r = 1.00, g = 1.00, b = 1.00 }, texture = "eui" },
     },
 }
 
