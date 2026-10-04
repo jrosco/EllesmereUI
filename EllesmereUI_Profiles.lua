@@ -289,21 +289,13 @@ end
 -- coroutine can spread the work across frames. nil (the default) keeps all synchronous
 -- callers exactly as before.
 local deserializeYieldHook
--- Bound parser work independently of the caller's import-specific size limit.
--- These generous profile budgets do not bound the preceding decompression.
-local DESERIALIZE_MAX_BYTES = 16 * 1024 * 1024
-local DESERIALIZE_MAX_VALUES = 1000000
-local DESERIALIZE_MAX_DEPTH = 128
+local deserializeOps = 0
 
--- A missing next position signals failure; nil with a next position is the
--- valid N token. Never expose a partially parsed table on failure.
-local function DeserializeValue(str, pos, state, depth)
-    state.values = state.values + 1
-    if state.values > DESERIALIZE_MAX_VALUES then return nil end
+local function DeserializeValue(str, pos)
     if deserializeYieldHook then
-        state.ops = state.ops + 1
-        if state.ops >= 2048 then
-            state.ops = 0
+        deserializeOps = deserializeOps + 1
+        if deserializeOps >= 2048 then
+            deserializeOps = 0
             deserializeYieldHook(pos)
         end
     end
@@ -311,19 +303,15 @@ local function DeserializeValue(str, pos, state, depth)
     if tag == "s" then
         -- Find the colon after the length
         local colonPos = str:find(":", pos + 1, true)
-        if not colonPos then return nil end
-        local lengthStr = str:sub(pos + 1, colonPos - 1)
-        if not lengthStr:match("^%d+$") then return nil end
-        local len = tonumber(lengthStr)
-        if not len or len > state.length - colonPos then return nil end
+        if not colonPos then return nil, pos end
+        local len = tonumber(str:sub(pos + 1, colonPos - 1))
+        if not len then return nil, pos end
         local val = str:sub(colonPos + 1, colonPos + len)
         return val, colonPos + len + 1
     elseif tag == "n" then
         local semi = str:find(";", pos + 1, true)
-        if not semi then return nil end
-        local val = tonumber(str:sub(pos + 1, semi - 1))
-        if not val or val ~= val or val == math.huge or val == -math.huge then return nil end
-        return val, semi + 1
+        if not semi then return nil, pos end
+        return tonumber(str:sub(pos + 1, semi - 1)), semi + 1
     elseif tag == "T" then
         return true, pos + 1
     elseif tag == "F" then
@@ -331,51 +319,44 @@ local function DeserializeValue(str, pos, state, depth)
     elseif tag == "N" then
         return nil, pos + 1
     elseif tag == "{" then
-        if depth >= DESERIALIZE_MAX_DEPTH then return nil end
         local tbl = {}
         local idx = 1
         local p = pos + 1
-        while p <= state.length do
-            local start = p
+        while p <= #str do
             local c = str:sub(p, p)
             if c == "}" then
                 return tbl, p + 1
             elseif c == "K" then
                 -- Key-value pair
                 local key, val
-                key, p = DeserializeValue(str, p + 1, state, depth + 1)
-                if key == nil or not p or p <= start + 1 then return nil end
-                local valueStart = p
-                val, p = DeserializeValue(str, p, state, depth + 1)
-                if not p or p <= valueStart then return nil end
-                tbl[key] = val
+                key, p = DeserializeValue(str, p + 1)
+                val, p = DeserializeValue(str, p)
+                if key ~= nil then
+                    tbl[key] = val
+                end
             else
                 -- Array element
                 local val
-                val, p = DeserializeValue(str, p, state, depth + 1)
-                if not p or p <= start then return nil end
+                val, p = DeserializeValue(str, p)
                 tbl[idx] = val
                 idx = idx + 1
             end
         end
-        return nil -- missing closing brace
+        return tbl, p
     end
-    return nil -- unknown tag, unexpected delimiter, or missing value
+    return nil, pos + 1
 end
 
 function Serializer.Deserialize(str)
-    if type(str) ~= "string" or #str == 0 or #str > DESERIALIZE_MAX_BYTES then return nil end
-    -- Per-call counters remain independent when a synchronous import runs
-    -- while an asynchronous parser is suspended at its yield hook.
-    local state = { length = #str, values = 0, ops = 0 }
-    local val, pos = DeserializeValue(str, 1, state, 0)
-    if pos ~= #str + 1 then return nil end
+    if not str or #str == 0 then return nil end
+    local val, _ = DeserializeValue(str, 1)
     return val
 end
 
 -- Install/clear the deserializer's cooperative-yield hook (async decode).
 function Serializer.SetYieldHook(fn)
     deserializeYieldHook = fn
+    deserializeOps = 0
 end
 
 EllesmereUI._Serializer = Serializer
@@ -1387,17 +1368,15 @@ local REFRESH_ADDON_STEPS = {
             if _G._ECME_Apply then _G._ECME_Apply() end
         end
     end,
-    -- Cursor (style + position), Crosshair, Self Combat Text, and the QoL
-    -- extras (FPS counter + Secondary Stats -- one call for both: the FPS
-    -- readout may be drawn by the Secondary Stats block, so the two owners
-    -- re-evaluate together).
+    -- Cursor (style + position), Crosshair, and the QoL extras (FPS counter +
+    -- Secondary Stats -- one call for both: the FPS readout may be drawn by
+    -- the Secondary Stats block, so the two owners re-evaluate together).
     function()
         if _G._ECL_Apply then _G._ECL_Apply() end
         if _G._ECL_ApplyTrail then _G._ECL_ApplyTrail() end
         if _G._ECL_ApplyGCDCircle then _G._ECL_ApplyGCDCircle() end
         if _G._ECL_ApplyCastCircle then _G._ECL_ApplyCastCircle() end
         if EllesmereUI._applyCrosshair then EllesmereUI._applyCrosshair() end
-        if EllesmereUI._applySelfCombatText then EllesmereUI._applySelfCombatText() end
         if EllesmereUI._applyFPSDisplay then
             EllesmereUI._applyFPSDisplay()
         elseif EllesmereUI._applySecondaryStats then
@@ -2386,25 +2365,13 @@ end
 --  Excluded by design -- per-character data that is nobody else's:
 --    dataBarsGold         cross-character gold ledger
 --    qolUpgradeCalcChars  Upgrade Calculator per-character cache
---    xpBarChars           XP bar session clock, XP rate and time this level
---  (The first two are the blobs PRIVATE_ADDON_KEYS strips from normal strings,
---  at their current top-level homes.) And the game settings this client had
---  before EllesmereUI, which Uninstall EUI puts back, with the values modules
---  hand back to this client's CVars later:
---    restoreOnUninstall     (EllesmereUI_Uninstall.lua)
---    gfxBackup              Optimize My FPS and Graphics' Restore values
---    friendlyPlateVisSaved  friendly plates hidden in a follower dungeon
---    chatTellMuted          the whisper sound Chat muted
+--  (The same two blobs PRIVATE_ADDON_KEYS strips from normal strings, at
+--  their current top-level homes.)
 -------------------------------------------------------------------------------
 local FULL_EXPORT_TYPE = "fullaccount"
 local FULL_EXPORT_EXCLUDED = {
-    dataBarsGold          = true,
-    qolUpgradeCalcChars   = true,
-    xpBarChars            = true,
-    restoreOnUninstall    = true,
-    gfxBackup             = true,
-    friendlyPlateVisSaved = true,
-    chatTellMuted         = true,
+    dataBarsGold        = true,
+    qolUpgradeCalcChars = true,
 }
 
 --- Builds a full-account export string, or nil.
@@ -2812,7 +2779,7 @@ function EllesmereUI.ExportCurrentProfile(includeLayout, includeCDM, cdmSpecs)
 end
 
 function EllesmereUI.DecodeImportString(importStr)
-    if type(importStr) ~= "string" or #importStr < 5 then return nil, "Invalid string" end
+    if not importStr or #importStr < 5 then return nil, "Invalid string" end
     -- Detect old CDM bar layout strings (format removed in 5.1.2)
     if importStr:sub(1, 9) == "!EUICDM_" then
         return nil, "This is an old CDM Bar Layout string. This format is no longer supported. Use the standard profile import instead."
@@ -2828,9 +2795,6 @@ function EllesmereUI.DecodeImportString(importStr)
     if not decompressed then return nil, "Failed to decompress data" end
     local payload = Serializer.Deserialize(decompressed)
     if not payload or type(payload) ~= "table" then
-        return nil, "Failed to deserialize data"
-    end
-    if payload.version ~= nil and type(payload.version) ~= "number" then
         return nil, "Failed to deserialize data"
     end
     if not payload.version or payload.version < 3 then
@@ -2884,7 +2848,7 @@ do
 
     function EllesmereUI.DecodeImportStringAsync(importStr, onDone, onProgress)
         -- Cheap validations first (same messages as DecodeImportString).
-        if type(importStr) ~= "string" or #importStr < 5 then
+        if not importStr or #importStr < 5 then
             onDone(nil, "Invalid string")
             return nil
         end
@@ -2968,9 +2932,6 @@ do
             Serializer.SetYieldHook(nil)
 
             if not payload or type(payload) ~= "table" then
-                return nil, "Failed to deserialize data"
-            end
-            if payload.version ~= nil and type(payload.version) ~= "number" then
                 return nil, "Failed to deserialize data"
             end
             if not payload.version or payload.version < 3 then
@@ -4673,19 +4634,6 @@ function EllesmereUI:ShowCopyPopup(title, subtitle, str)
     end)
 end
 
--- Shared scrollable string-input popup for addon-specific standalone imports.
--- Uses the same multiline editor, scrollbar and large-paste absorber as profile imports.
-function EllesmereUI:ShowImportStringPopup(title, subtitle, confirmText, onConfirm)
-    if type(onConfirm) ~= "function" then return end
-    local dimmer, editBox = BuildStringPopup(
-        title or "Import",
-        subtitle or "Paste the complete code below",
-        false, onConfirm, confirmText or "Import")
-    dimmer:Show()
-    C_Timer.After(0.05, function() editBox:SetFocus() end)
-    return dimmer
-end
-
 -------------------------------------------------------------------------------
 --  Apply a Blizzard Edit Mode layout from a preset's export string.
 --  Decodes the string with C_EditMode.ConvertStringToLayoutInfo, writes it into
@@ -4709,6 +4657,7 @@ function EllesmereUI.ApplyPresetEditMode(layoutString, layoutName)
     -- Edit Mode account settings populate on EDIT_MODE_LAYOUTS_UPDATED (login);
     -- once present, C_EditMode.GetLayouts is usable without opening the UI.
     if not (mgr and mgr.accountSettings) then return false end
+    if not (EditModePresetLayoutManager and EditModePresetLayoutManager.GetCopyOfPresetLayouts) then return false end
 
     local imported = C_EditMode.ConvertStringToLayoutInfo(layoutString)
     if not imported then return false end  -- malformed or version-incompatible string
@@ -4725,15 +4674,20 @@ function EllesmereUI.ApplyPresetEditMode(layoutString, layoutName)
         mgr:ReconcileWithModern(imported)
     end
 
+    local info = C_EditMode.GetLayouts()
+    if not (info and info.layouts) then return false end
+    if mgr.ReconcileWithModern then
+        for _, l in ipairs(info.layouts) do mgr:ReconcileWithModern(l) end
+    end
+
     -- C_EditMode.GetLayouts returns only the saved layouts; the live game keeps
     -- Blizzard's built-in presets ahead of them, and SaveLayouts / SetActiveLayout
-    -- index into that combined view: presets first, then the saved layouts, so
-    -- the active index we hand back lines up with what the game uses.
-    local info, presetCount = EllesmereUI.EditModeLayoutsForSave()
-    if not info then return false end
-    local layouts = info.layouts
-    if mgr.ReconcileWithModern then
-        for i = presetCount + 1, #layouts do mgr:ReconcileWithModern(layouts[i]) end
+    -- index into that combined view. Rebuild it -- presets first, then the saved
+    -- layouts -- so the active index we hand back lines up with what the game uses.
+    local layouts = EditModePresetLayoutManager:GetCopyOfPresetLayouts()
+    local presetCount = #layouts
+    for _, l in ipairs(info.layouts) do
+        layouts[#layouts + 1] = l
     end
 
     -- Re-importing a preset should refresh, not duplicate: drop any earlier copy of
