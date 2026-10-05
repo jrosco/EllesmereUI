@@ -5046,4 +5046,3 @@ function EllesmereUI.RegisterExternalInstaller(displayName)
     EllesmereUI._externalInstaller = (type(displayName) == "string" and displayName ~= "")
         and displayName or true
 end
-
