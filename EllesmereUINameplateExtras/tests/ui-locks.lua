@@ -21,7 +21,7 @@ second.name, second.enabled = "Other rule", true
 api.GetSettings().rules = { first, second }
 api.GetSettings().selectedRule = 1
 EllesmereUI:RefreshPage()
-local dropdowns = { "Unit type", "Reaction", "Classification", "Target state", "Cast state", "Spell school", "Threat" }
+local dropdowns = { "Unit type", "Reaction", "Classification", "Target state", "Cast state", "Spell school", "Threat", "Player combat state", "Instance Type" }
 local actions = { "Add Rule", "Copy Rule", "Delete Rule", "Move Rule Up", "Move Rule Down" }
 local settings = { "Rule name", "Quest Objective", "Nameplate size (%)", "Opacity (%)", "Override health bar",
     "Custom health color", "Health-bar color", "Health-bar texture", "Override health border", "Health border texture",

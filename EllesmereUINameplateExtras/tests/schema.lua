@@ -58,6 +58,8 @@ local choices = {
     classification = { "normal", "elite", "rare", "rareelite", "boss", "minus" },
     target = { "yes", "no", "none" },
     threat = { "nonTank", "tank", "me" },
+    playerCombat = { "inCombat", "outOfCombat" },
+    instanceType = { "world", "dungeon", "raid", "battleground", "arena", "scenario", "delve" },
     castState = { "none", "casting", "channel", "empowered", "interruptible", "interruptOnCD", "uninterruptible" },
     spellSchool = { "physical", "holy", "fire", "nature", "frost", "shadow", "arcane", "mixed" },
 }

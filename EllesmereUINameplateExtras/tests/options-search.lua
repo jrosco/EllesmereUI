@@ -50,7 +50,7 @@ local function Rule(name)
 end
 local db = { selectedRule = 1, rules = { Rule("First rule"), Rule("Second rule") } }
 EllesmereUINameplateExtras = { GetSettings = function() return db end, Refresh = Noop,
-    CastStyleDefaults = {} }
+    CastStyleDefaults = {}, SupportsInstanceType = function() return true end }
 assert(loadfile("EllesmereUINameplateExtras/EllesmereUINameplateExtras_Scaling.lua"))("EllesmereUINameplateExtras", {})
 assert(loadfile("EllesmereUINameplateExtras/EllesmereUINameplateExtras_Borders.lua"))("EllesmereUINameplateExtras", {})
 assert(loadfile("EllesmereUINameplateExtras/EllesmereUINameplateExtras_Glows.lua"))("EllesmereUINameplateExtras", {})
@@ -241,14 +241,14 @@ local function PrebuildTest()
         "Cast-bar texture", "Cast border size",
         "Override target arrows", "Target-arrow style", "Health border texture", "Cast border texture",
         "Health border glow", "Health glow color", "Cast border glow", "Cast glow color",
-        "Override text", "Top text content", "Cast timer text content", "Name text color" }) do
+        "Override text", "Top text content", "Cast timer text content", "Name text color", "Player combat state", "Instance Type" }) do
         assert(index[label], "prebuild missed " .. label)
     end
     assert(index["Unit type"].tooltip:find("Any creature", 1, true), "condition tooltip lost")
     for _, text in ipairs(actions) do assert(index[text], "action search entry lost: " .. text) end
     Build()
     assert(#refreshes >= 7, "live condition refresh registrations missing")
-    for _, label in ipairs({ "Unit type", "Reaction", "Classification", "Target state", "Cast state", "Spell school", "Threat" }) do
+    for _, label in ipairs({ "Unit type", "Reaction", "Classification", "Target state", "Cast state", "Spell school", "Threat", "Player combat state", "Instance Type" }) do
         assert(dropdowns[label] and rawget(dropdowns[label].parent, "nativeFrame"), "live dropdown missing: " .. label)
         assert(dropdowns[label].parent._slotLabel == label, "slot highlight metadata lost")
     end
@@ -267,7 +267,7 @@ local function PrebuildTest()
     assert(not unit.get("npc") and unit.get("player"), "deselect erased another selection")
     unit.set("player", false)
     assert(next(db.rules[1].conditions.unitType) == nil, "empty selection must mean Any")
-    print("PASS prebuild: actual GlobalSearch pass/index; two wrapper frames, zero controls; seven live dropdowns")
+    print("PASS prebuild: actual GlobalSearch pass/index; two wrapper frames, zero controls; nine live dropdowns")
 end
 local function SectionsTest()
     Build() -- first registration is retained, exactly like GlobalSearch.

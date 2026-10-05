@@ -6,6 +6,8 @@ local MULTI_CONDITION_VALUES = {
     classification = { normal = true, elite = true, rare = true, rareelite = true, boss = true, minus = true },
     target = { yes = true, no = true, none = true },
     threat = { nonTank = true, tank = true, me = true },
+    playerCombat = { inCombat = true, outOfCombat = true },
+    instanceType = { world = true, dungeon = true, raid = true, battleground = true, arena = true, scenario = true, delve = true },
     castState = { none = true, casting = true, channel = true, empowered = true, interruptible = true, interruptOnCD = true, uninterruptible = true },
     spellSchool = { physical = true, holy = true, fire = true, nature = true, frost = true, shadow = true, arcane = true, mixed = true },
 }
@@ -13,6 +15,8 @@ local SCALAR_CONDITION_VALUES = {
     questObjective = { any = true, yes = true, no = true },
 }
 local DEFAULT_CONDITIONS = { questObjective = "any" }
+local INSTANCE_TYPES = { none = "world", party = "dungeon", raid = "raid", pvp = "battleground",
+    arena = "arena", scenario = "scenario", delve = "delve" }
 
 local DEFAULT_RULES = {
     {
@@ -476,7 +480,35 @@ local function ReadThreat(unit, checkRoles, targetExists, isTarget)
     return result
 end
 
-local function GetTraits(unit, checkQuestObjective, checkThreat, checkThreatRoles)
+local function SupportsInstanceType(value)
+    if MULTI_CONDITION_VALUES.instanceType[value] ~= true then return false end
+    if EllesmereUI and EllesmereUI.IS_FOREVER == true then
+        return value ~= "arena" and value ~= "scenario" and value ~= "delve"
+    end
+    return MULTI_CONDITION_VALUES.instanceType[value] == true
+end
+local function ReadPlayerCombat()
+    if type(UnitAffectingCombat) ~= "function" then return "unknown" end
+    local ok, result = pcall(UnitAffectingCombat, "player")
+    if not ok then return "unknown" end
+    local value = SafeBool(result)
+    if value == true then return "inCombat" elseif value == false then return "outOfCombat" end
+    return "unknown"
+end
+local function ReadInstanceType()
+    if type(GetInstanceInfo) ~= "function" then return "unknown" end
+    local ok, _, kind, difficulty = pcall(GetInstanceInfo)
+    if not ok or IsSecret(kind) or type(kind) ~= "string" then return "unknown" end
+    local value = INSTANCE_TYPES[kind]
+    if kind == "scenario" then
+        -- Delves report scenario/208 even after completion. Do not classify
+        -- them from an in-progress flag that can clear while still inside.
+        if IsSecret(difficulty) or type(difficulty) ~= "number" then return "unknown" end
+        if difficulty == 208 then value = "delve" end
+    end
+    return value and SupportsInstanceType(value) and value or "unknown"
+end
+local function GetTraits(unit, checkQuestObjective, checkThreat, checkThreatRoles, checkCombat, checkInstance)
     local player = SafeBool(UnitIsPlayer(unit))
     local unitType
     if player == true then
@@ -520,6 +552,8 @@ local function GetTraits(unit, checkQuestObjective, checkThreat, checkThreatRole
         interruptible = interruptible,
         castColorState = KnownCastColorState(interruptible),
         spellSchool = spellSchool,
+        playerCombat = checkCombat and ReadPlayerCombat() or nil,
+        instanceType = checkInstance and ReadInstanceType() or nil,
     }
 end
 
@@ -559,6 +593,17 @@ local function ThreatRequirements(rules)
     end
     return needed, false
 end
+local function ContextRequirements(rules)
+    local combat, instance = false, false
+    for _, rule in ipairs(rules) do
+        if rule.enabled ~= false then
+            local conditions = rule.conditions or {}
+            combat = combat or HasSelection(conditions.playerCombat)
+            instance = instance or HasSelection(conditions.instanceType)
+        end
+    end
+    return combat, instance
+end
 
 local CAST_COLOR_STATES = { "interruptible", "interruptOnCD", "uninterruptible" }
 local function IsCastColorState(value)
@@ -588,6 +633,8 @@ local function MatchesReadableConditions(rule, unit, traits)
     end) then return false end
     if not AnySelectionMatches(c.reaction, function(value) return value == traits.reaction end) then return false end
     if not AnySelectionMatches(c.classification, function(value) return value == traits.classification end) then return false end
+    if not AnySelectionMatches(c.playerCombat, function(value) return value == traits.playerCombat end) then return false end
+    if not AnySelectionMatches(c.instanceType, function(value) return SupportsInstanceType(value) and value == traits.instanceType end) then return false end
     if not AnySelectionMatches(c.target, function(value)
         if value == "yes" then return traits.targetExists == true and traits.target == true end
         if value == "no" then return traits.targetExists == true and traits.target == false end
@@ -610,7 +657,8 @@ local function MatchesReadableConditions(rule, unit, traits)
             local ok, matches = pcall(predicate, unit, traits, expected, rule)
             if not ok or SafeBool(matches) ~= true then return false end
         elseif key ~= "unitType" and key ~= "reaction" and key ~= "classification"
-           and key ~= "target" and key ~= "threat" and key ~= "questObjective" and key ~= "castState" and key ~= "spellSchool" then
+           and key ~= "target" and key ~= "threat" and key ~= "questObjective" and key ~= "castState" and key ~= "spellSchool"
+           and key ~= "playerCombat" and key ~= "instanceType" then
             return false
         end
     end
@@ -666,7 +714,8 @@ local function FindCastColorOverridesWithSnapshot(unit, traits, snapshot)
     if settings.enabled == false then return colors end
     if not traits then
         local checkThreat, checkRoles = ThreatRequirements(settings.rules)
-        traits = GetTraits(unit, true, checkThreat, checkRoles)
+        local checkCombat, checkInstance = ContextRequirements(settings.rules)
+        traits = GetTraits(unit, true, checkThreat, checkRoles, checkCombat, checkInstance)
     end
     local matches = snapshot and MatchesWithSnapshot or Matches
     for index, rule in ipairs(settings.rules) do
@@ -701,7 +750,8 @@ local function FindRuleWithSnapshot(unit, snapshot)
         end
     end
     local checkThreat, checkRoles = ThreatRequirements(db.rules)
-    local traits = GetTraits(unit, checkQuestObjective, checkThreat, checkRoles)
+    local checkCombat, checkInstance = ContextRequirements(db.rules)
+    local traits = GetTraits(unit, checkQuestObjective, checkThreat, checkRoles, checkCombat, checkInstance)
     local matches = snapshot and MatchesWithSnapshot or Matches
     for index, rule in ipairs(db.rules) do
         if matches(rule, unit, traits, false, snapshot) then return rule, index, traits end
@@ -1036,6 +1086,7 @@ local events = {
     "QUEST_LOG_UPDATE",
     "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED",
     "PLAYER_TARGET_CHANGED", "PLAYER_FOCUS_CHANGED", "PLAYER_ENTERING_WORLD",
+    "ZONE_CHANGED_NEW_AREA", "ZONE_CHANGED", "ZONE_CHANGED_INDOORS", "PLAYER_DIFFICULTY_CHANGED", "UPDATE_INSTANCE_INFO",
     "UNIT_FLAGS", "UNIT_FACTION", "UNIT_NAME_UPDATE",
     "UNIT_THREAT_LIST_UPDATE", "UNIT_THREAT_SITUATION_UPDATE",
     "GROUP_ROSTER_UPDATE", "PLAYER_ROLES_ASSIGNED", "ROLE_CHANGED_INFORM",
@@ -1111,6 +1162,7 @@ local publicAPI = {
     NormalizeRuleConditions = NormalizeRuleConditions,
     ValidateRuleConditions = ValidateRuleConditions,
     SupportsCastColorStates = SupportsCastColorStates,
+    SupportsInstanceType = SupportsInstanceType,
     GetSettings = GetSettings,
     GetRules = function() return GetSettings().rules end,
     GetProfileInfo = ProfileInfo,

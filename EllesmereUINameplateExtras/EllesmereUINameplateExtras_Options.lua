@@ -15,6 +15,11 @@ local TARGETS = { any = "Any target state", yes = "Current target", no = "Not cu
 local TARGET_ORDER = { "any", "yes", "no", "none" }
 local THREATS = { any = "Any threat", nonTank = "Non-tank threat", tank = "Tank threat", me = "Threat on me" }
 local THREAT_ORDER = { "any", "nonTank", "tank", "me" }
+local PLAYER_COMBAT = { any = "Any combat state", inCombat = "In combat", outOfCombat = "Out of combat" }
+local PLAYER_COMBAT_ORDER = { "any", "inCombat", "outOfCombat" }
+local INSTANCES = { any = "Any instance type", world = "Open world", dungeon = "Dungeon", raid = "Raid",
+    battleground = "Battleground", arena = "Arena", scenario = "Scenario", delve = "Delve" }
+local INSTANCE_ORDER = { "any", "world", "dungeon", "raid", "battleground", "arena", "scenario", "delve" }
 local THREAT_TIPS = {
     nonTank = "Matches when a non-tank (Damage or Healer role) holds this unit's aggro.",
     tank = "Matches when a tank holds this unit's aggro.",
@@ -591,9 +596,11 @@ local function BuildRulesPage(parent, yOffset)
                 local item = { key = value, label = values[value] }
                 if key == "threat" then item.tooltip = THREAT_TIPS[value] end
                 local requiresStyle = key == "castState" and CUSTOM_CAST_STATES[value]
-                item.lockedFn = function() return RuleLocked() or (requiresStyle and not addon.SupportsCastColorStates()) or false end
+                local unavailableInstance = function() return key == "instanceType" and not addon.SupportsInstanceType(value) end
+                item.lockedFn = function() return RuleLocked() or (requiresStyle and not addon.SupportsCastColorStates()) or unavailableInstance() or false end
                 item.lockedTooltip = function()
                     if RuleLocked() then return LockTip() end
+                    if unavailableInstance() then return "This instance type is not available on WoW Forever." end
                     return CUSTOM_CAST_STYLE_TIP
                 end
                 items[#items + 1] = item
@@ -614,6 +621,7 @@ local function BuildRulesPage(parent, yOffset)
             setSelected = function(option, selected)
                 if RuleLocked() then return end
                 if key == "castState" and CUSTOM_CAST_STATES[option] and not addon.SupportsCastColorStates() then return end
+                if key == "instanceType" and selected and not addon.SupportsInstanceType(option) then return end
                 local current = GetRule()
                 local value = GetSelection()
                 current.conditions[key] = value
@@ -670,6 +678,10 @@ local function BuildRulesPage(parent, yOffset)
             "Casting matches all active casts. Interruptible cast, Interrupt on CD, and Uninterruptible cast implicitly enable Casting for size, health styling, texture, opacity and borders without checking Casting. Those effects use the first matching active-cast rule. Custom cast colors remain state-specific: the first matching rule per color state wins and native rendering selects the displayed state. Other filters still combine with AND; cast choices combine with OR."),
         ConditionMultiDropdown("Spell school", "spellSchool", SCHOOLS, SCHOOL_ORDER,
             "Learns spell schools from combat-log cast starts while a school rule is enabled. Unknown spells do not match a specific school."),
+        ConditionMultiDropdown("Player combat state", "playerCombat", PLAYER_COMBAT, PLAYER_COMBAT_ORDER,
+            "Matches your character's combat state, not the nameplate unit's. Choices combine with OR; empty means Any (both states). Other condition groups still combine with AND."),
+        ConditionMultiDropdown("Instance Type", "instanceType", INSTANCES, INSTANCE_ORDER,
+            "Matches where your character is: open world, dungeon, raid, battleground, arena, scenario or Retail delve. This is not your party/raid group type. Choices combine with OR; empty means Any. Delves are distinct from scenarios, including after completion. Arena, scenario and delve choices are unavailable on Forever."),
     }
     for index = 1, #conditions, 2 do
         local left, right = conditions[index], conditions[index + 1]
