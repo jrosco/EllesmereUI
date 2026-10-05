@@ -23,6 +23,7 @@ local BOOLEAN_STYLE_KEYS = {
     "castColorEnabled", "castOpacityEnabled", "castBorderEnabled",
     "targetArrowsEnabled",
     "healthGlowBackground", "castGlowBackground",
+    "textEnabled",
 }
 local COLOR_STYLE_KEYS = { "healthColor", "borderColor", "castColor", "castBorderColor",
     "healthGlowColor", "castGlowColor", "healthGlowBackgroundColor", "castGlowBackgroundColor" }
@@ -68,6 +69,9 @@ local function ValidateRule(rule, index)
     end
     local validConditions, invalidKey = api.ValidateRuleConditions(rule.conditions)
     if not validConditions then return nil, ("Rule %d has an invalid %s condition."):format(index, invalidKey) end
+    if api.ValidateRuleText and not api.ValidateRuleText(rule.style) then
+        return nil, ("Rule %d has invalid text slots or colors."):format(index)
+    end
     for _, key in ipairs({ "healthGlowStyle", "castGlowStyle" }) do
         if api.ValidateRuleGlowStyle and not api.ValidateRuleGlowStyle(rule.style[key]) then
             return nil, ("Rule %d has an invalid %s setting."):format(index, key)

@@ -41,8 +41,8 @@ function CreateFrame(kind, _, parentFrame, template)
     function frame:SetAlphaFromBoolean(value, yes, no)
         if value == secretValue then self.alpha = secretValue else self.alpha = value and (yes or 1) or (no or 0) end
     end
-    function frame:GetFrameStrata() return "MEDIUM" end
-    function frame:GetFrameLevel() return 10 end
+    function frame:GetFrameStrata() return self.frameStrata or "MEDIUM" end
+    function frame:GetFrameLevel() return self.frameLevel or 10 end
     function frame:GetWidth() return self.width or 800 end
     function frame:SetSize(width, height) self.width, self.height = width, height end
     for _, method in ipairs({ "SetAllPoints", "SetFrameStrata", "SetFrameLevel", "Hide", "Show",
@@ -62,6 +62,11 @@ function CreateFrame(kind, _, parentFrame, template)
     function frame:GetStatusBarColor() return unpack(self.color) end
     function frame:SetColorTexture(...) self.color = { ... } end
     function frame:SetFont(path, size, flags) self.fontPath, self.fontSize, self.fontFlags = path, size, flags; return true end
+    function frame:SetFrameLevel(value) self.frameLevel = value end
+    function frame:SetFrameStrata(value) self.frameStrata = value end
+    function frame:SetTextColor(r, g, b, a) self.textColor = { r, g, b, a or 1 } end
+    function frame:GetTextColor() return unpack(self.textColor or { 1, 1, 1, 1 }) end
+    function frame:SetFormattedText(format, ...) self.text = string.format(format, ...) end
     function frame:SetHeight(value) self.height = value end
     function frame:SetWidth(value) self.width = value end
     function frame:SetAllPoints(other) self.allPoints = other end
@@ -259,6 +264,7 @@ end
 assert(loadfile("EllesmereUINameplateExtras/EllesmereUINameplateExtras.lua"))("EllesmereUINameplateExtras", namespace)
 assert(loadfile("EllesmereUINameplateExtras/EllesmereUINameplateExtras_Borders.lua"))("EllesmereUINameplateExtras", namespace)
 assert(loadfile("EllesmereUINameplateExtras/EllesmereUINameplateExtras_Glows.lua"))("EllesmereUINameplateExtras", namespace)
+assert(loadfile("EllesmereUINameplateExtras/EllesmereUINameplateExtras_Text.lua"))("EllesmereUINameplateExtras", namespace)
 assert(loadfile("EllesmereUINameplateExtras/EllesmereUINameplateExtras_Scaling.lua"))("EllesmereUINameplateExtras", namespace)
 assert(loadfile("EllesmereUINameplateExtras/EllesmereUINameplateExtras_TargetArrows.lua"))("EllesmereUINameplateExtras", namespace)
 assert(loadfile("EllesmereUINameplateExtras/EllesmereUINameplateExtras_CastStyles.lua"))("EllesmereUINameplateExtras", namespace)

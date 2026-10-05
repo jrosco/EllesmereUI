@@ -60,7 +60,7 @@ function api.BuildRulePreview(parent, parentWidth, getRule, locked)
     local timer = EllesmereUI.MakeFont(castText, 12, nil, 1, 1, 1)
     spell:SetText(EllesmereUI.L("Sample Spell")); spell:SetWordWrap(false); spell:SetMaxLines(1)
     PP.Point(spell, "LEFT", castText, "LEFT", 3, 0); PP.Point(timer, "RIGHT", castText, "RIGHT", -3, 0)
-    preview.spell, preview.timer = spell, timer
+    preview.spell, preview.timer, preview.castTextHost = spell, timer, castText
     local arrowHost = CreateFrame("Frame", nil, plate)
     arrowHost:SetAllPoints(plate)
     local left, right = arrowHost:CreateTexture(nil, "OVERLAY"), arrowHost:CreateTexture(nil, "OVERLAY")
@@ -77,6 +77,7 @@ function api.BuildRulePreview(parent, parentWidth, getRule, locked)
         preview.elapsed = (preview.elapsed + Number(elapsed, 0, 0, 3600)) % 3
         cast._bar:SetValue(preview.elapsed / 3 * 100)
         timer:SetText(("%.1fs"):format(3 - preview.elapsed))
+        if api.TickRuleTextPreview then api.TickRuleTextPreview(preview) end
     end
     local function Update(forceHeight)
         if busy then return headerHeight end
@@ -196,6 +197,7 @@ function api.BuildRulePreview(parent, parentWidth, getRule, locked)
             if not building and (headerHeight ~= h or forceHeight == true) and EllesmereUI.UpdateContentHeaderHeight then EllesmereUI:UpdateContentHeaderHeight(h) end
             headerHeight = h
             Tick(preview, 0)
+            if api.UpdateRuleTextPreview then api.UpdateRuleTextPreview(preview, style) end
             preview:SetScript("OnUpdate", Tick)
         end)
         busy = false

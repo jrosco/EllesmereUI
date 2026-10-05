@@ -117,6 +117,13 @@ local function Targets(plate, policy)
         "name", "hpText", "hpNumber", "levelText", "totText", "threatPctText", "focusLetter",
         "classText", "_classicLevel", "subText1" }) do Add(plate[key], "text") end
     for _, host in pairs(plate._slotTextHosts or {}) do Add(host, "text") end
+    if addon.GetRuleTextFrames then
+        local host, fonts = addon.GetRuleTextFrames(plate)
+        Add(host, "text")
+        for key, font in pairs(fonts or {}) do
+            if not key:match("^cast") then Add(font, "text") end
+        end
+    end
     -- Name-adjacent raid markers can be parented to a text host, but follow Other.
     for _, key in ipairs({ "raidFrame", "nameRaidFrame", "classFrame", "factionFrame", "glowFrame", "_classicSkull",
         "arrowHost", "leftArrow", "rightArrow",

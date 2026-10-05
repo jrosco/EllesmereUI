@@ -752,6 +752,7 @@ local function ApplyAlpha(plate, state)
 end
 
 local function ResetStyle(plate, state, released, castColors)
+    if addon.ApplyRuleText then addon.ApplyRuleText(plate, nil) end
     if addon.ApplyRuleGlows then addon.ApplyRuleGlows(plate, nil) end
     if addon.ApplyRuleBorders then addon.ApplyRuleBorders(plate, nil) end
     if addon.ApplyTargetArrowStyle then addon.ApplyTargetArrowStyle(plate, nil, released) end
@@ -835,6 +836,7 @@ local function ApplyStyle(plate)
         NP.NP_LayoutAbsorbBars(plate, plate.health, plate._absEdge)
     end
     state.writingHealth = nil
+    if addon.ApplyRuleText then addon.ApplyRuleText(plate, style) end
     if addon.ApplyRuleBorders then addon.ApplyRuleBorders(plate, style) end
     if addon.ApplyTargetArrowStyle then addon.ApplyTargetArrowStyle(plate, style) end
     local scale = math.max(50, math.min(200, tonumber(style.scale) or 100)) / 100
@@ -950,6 +952,7 @@ end
 
 local function InstallPlateHooks(plate)
     if not plate then return end
+    if addon.InstallTextHooks then addon.InstallTextHooks(plate) end
     if addon.InstallGlowHooks then addon.InstallGlowHooks(plate) end
     if addon.InstallBorderHooks then addon.InstallBorderHooks(plate) end
     if addon.InstallTargetArrowHooks then addon.InstallTargetArrowHooks(plate) end

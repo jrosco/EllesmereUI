@@ -33,6 +33,9 @@ function CreateFrame(kind, _, parent)
     function frame:SetVertexColor(...) self.color = { ... } end
     function frame:SetTexture(path) self.texture = path end
     function frame:SetFont(path, size) self.fontPath, self.fontSize = path, size; return true end
+    function frame:SetTextColor(...) self.textColor = { ... } end
+    function frame:SetFormattedText(format, ...) self.text = string.format(format, ...) end
+    function frame:SetShown(value) self.shown = value end
     function frame:SetScale(scale) self.scale = scale end
     function frame:GetEffectiveScale() return 1 end
     for _, key in ipairs({ "SetJustifyH", "SetWordWrap", "SetMaxLines", "SetFrameLevel",
@@ -51,6 +54,8 @@ EllesmereUINameplateExtras = { GetSettings = function() return db end, Refresh =
 assert(loadfile("EllesmereUINameplateExtras/EllesmereUINameplateExtras_Scaling.lua"))("EllesmereUINameplateExtras", {})
 assert(loadfile("EllesmereUINameplateExtras/EllesmereUINameplateExtras_Borders.lua"))("EllesmereUINameplateExtras", {})
 assert(loadfile("EllesmereUINameplateExtras/EllesmereUINameplateExtras_Glows.lua"))("EllesmereUINameplateExtras", {})
+function hooksecurefunc() end
+assert(loadfile("EllesmereUINameplateExtras/EllesmereUINameplateExtras_Text.lua"))("EllesmereUINameplateExtras", {})
 assert(loadfile("EllesmereUINameplateExtras/EllesmereUINameplateExtras_TargetArrows.lua"))("EllesmereUINameplateExtras", {})
 assert(loadfile("EllesmereUINameplateExtras/EllesmereUINameplateExtras_Preview.lua"))()
 local spec, currentSection, pageRows, index, fields = nil, nil, {}, {}, {}
@@ -235,7 +240,8 @@ local function PrebuildTest()
         "Spell school", "Quest Objective", "Nameplate size (%)", "Opacity (%)", "Health-bar texture",
         "Cast-bar texture", "Cast border size",
         "Override target arrows", "Target-arrow style", "Health border texture", "Cast border texture",
-        "Health border glow", "Health glow color", "Cast border glow", "Cast glow color" }) do
+        "Health border glow", "Health glow color", "Cast border glow", "Cast glow color",
+        "Override text", "Top text content", "Cast timer text content", "Name text color" }) do
         assert(index[label], "prebuild missed " .. label)
     end
     assert(index["Unit type"].tooltip:find("Any creature", 1, true), "condition tooltip lost")

@@ -910,6 +910,54 @@ local function BuildRulesPage(parent, yOffset)
     }); y = y - h
 
     h = GlowRow("cast", CastOff, "Enable Override cast bar first."); y = y - h
+    _, h = W:SectionHeader(parent, "APPEARANCE - TEXT", y); y = y - h
+    _, h = LockedRow({ type = "toggle", text = "Override text",
+        disabled = function() return DB() ~= db or GetRule() ~= rule end,
+        disabledTooltip = "Select this rule again to edit its text.",
+        getValue = function() return GetRule().style.textEnabled == true end,
+        setValue = function(value) GetRule().style.textEnabled = value; Changed(); Rebuild() end,
+        tooltip = "Per-rule content and colors in EUI's existing text slots. Independent of bar fill/border overrides. Off restores EUI's native text. Match conditions and first-rule priority still apply.",
+    }); y = y - h
+    local function TextOff() return DB() ~= db or GetRule() ~= rule or GetRule().style.textEnabled ~= true end
+    local function TextSlot(slot)
+        local values, order = addon.GetRuleTextChoices(slot.cast)
+        return { type = "dropdown", text = slot.label .. " content", values = values, order = order,
+            disabled = TextOff, disabledTooltip = "Enable Override text first.",
+            getValue = function() return GetRule().style.textSlots and GetRule().style.textSlots[slot.key] or "eui" end,
+            setValue = function(value)
+                local style = GetRule().style
+                style.textSlots = style.textSlots or {}
+                if value == "eui" then style.textSlots[slot.key] = nil else style.textSlots[slot.key] = value end
+                Changed()
+            end,
+            tooltip = "Uses EUI's existing position, font size and offsets. Use EUI setting preserves native content; None hides this slot. Missing restricted data is left blank rather than inspected.",
+        }
+    end
+    for index = 1, #addon.RuleTextSlots, 2 do
+        local right = addon.RuleTextSlots[index + 1]
+        _, h = LockedRow(TextSlot(addon.RuleTextSlots[index]), right and TextSlot(right) or nil); y = y - h
+    end
+    _, h = W:SectionHeader(parent, "TEXT COLORS", y); y = y - h
+    for _, key in ipairs(addon.RuleTextElements) do
+        local label = addon.RuleTextLabels[key]
+        local function ColorOff() return TextOff() or not (GetRule().style.textColors and GetRule().style.textColors[key]) end
+        _, h = LockedRow({ type = "toggle", text = "Override " .. label .. " color", disabled = TextOff,
+            disabledTooltip = "Enable Override text first.",
+            getValue = function() return GetRule().style.textColors and GetRule().style.textColors[key] ~= nil or false end,
+            setValue = function(value)
+                local style = GetRule().style; style.textColors = style.textColors or {}
+                if value then style.textColors[key] = { r = 1, g = 1, b = 1 } else style.textColors[key] = nil end
+                Changed(); Rebuild()
+            end,
+        }, { type = "colorpicker", text = label .. " text color", hasAlpha = false,
+            disabled = ColorOff, disabledTooltip = "Enable the matching text color override first.",
+            getValue = function()
+                local c = GetRule().style.textColors and GetRule().style.textColors[key] or { r = 1, g = 1, b = 1 }
+                return c.r, c.g, c.b, 1
+            end,
+            setValue = function(r, g, b) GetRule().style.textColors[key] = { r = r, g = g, b = b }; Changed() end,
+        }); y = y - h
+    end
     _, h = W:SectionHeader(parent, "APPEARANCE - TARGET ARROWS", y); y = y - h
     local arrowValues, arrowOrder = addon.GetTargetArrowOptions()
     local function ArrowsUnavailable() return not addon.SupportsTargetArrows() end

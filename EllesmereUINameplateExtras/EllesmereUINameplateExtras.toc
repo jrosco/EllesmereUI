@@ -12,6 +12,7 @@
 EllesmereUINameplateExtras.lua
 EllesmereUINameplateExtras_Borders.lua
 EllesmereUINameplateExtras_Glows.lua
+EllesmereUINameplateExtras_Text.lua
 EllesmereUINameplateExtras_Scaling.lua
 EllesmereUINameplateExtras_TargetArrows.lua
 EllesmereUINameplateExtras_CastStyles.lua
