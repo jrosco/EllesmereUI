@@ -1068,12 +1068,9 @@ local function Register()
                     if pageName == "Rules" and rulesPreview then rulesPreview.Update(true) end
                 end,
                 onReset = function()
-                    local db = DB()
-                    db.rules = {}
-                    for index, rule in ipairs(addon.DefaultRules) do db.rules[index] = CopyRule(rule) end
-                    db.selectedRule = 1
-                    db.enabled = true
-                    addon.Refresh()
+                    addon.ResetActiveProfile()
+                    Rebuild()
+                    Changed()
                 end,
             },
         },

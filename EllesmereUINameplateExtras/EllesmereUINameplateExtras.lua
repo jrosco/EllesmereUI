@@ -23,25 +23,25 @@ local DEFAULT_RULES = {
         name = "Elite Enemies",
         enabled = true,
         conditions = { unitType = {}, reaction = { enemy = true }, classification = { elite = true }, target = {}, questObjective = "any", castState = {}, spellSchool = {} },
-        style = { healthColorEnabled = true, healthColor = { r = 0.72, g = 0.36, b = 1.00 }, scale = 105, opacity = 100, borderSize = 1, borderColor = { r = 1.00, g = 1.00, b = 1.00 }, texture = "eui" },
+        style = { healthColorEnabled = true, healthColor = { r = 0.72, g = 0.36, b = 1.00 }, scale = 120, opacity = 100, borderSize = 2, borderColor = { r = 1.00, g = 1.00, b = 1.00 }, texture = "eui" },
     },
     {
         name = "Enemy Casting",
         enabled = true,
         conditions = { unitType = {}, reaction = { enemy = true }, classification = {}, target = {}, questObjective = "any", castState = { casting = true }, spellSchool = {} },
-        style = { healthColorEnabled = true, healthColor = { r = 1.00, g = 0.28, b = 0.18 }, scale = 100, opacity = 100, borderSize = 1, borderColor = { r = 1.00, g = 1.00, b = 1.00 }, texture = "eui" },
+        style = { healthColorEnabled = true, healthColor = { r = 1.00, g = 0.28, b = 0.18 }, scale = 120, opacity = 100, borderSize = 2, borderColor = { r = 1.00, g = 1.00, b = 1.00 }, texture = "eui" },
     },
     {
         name = "Current Target",
         enabled = true,
         conditions = { unitType = {}, reaction = {}, classification = {}, target = { yes = true }, questObjective = "any", castState = {}, spellSchool = {} },
-        style = { healthColorEnabled = true, healthColor = { r = 0.12, g = 0.92, b = 0.67 }, scale = 115, opacity = 100, borderSize = 1, borderColor = { r = 1.00, g = 1.00, b = 1.00 }, texture = "eui" },
+        style = { healthColorEnabled = true, healthColor = { r = 0.12, g = 0.92, b = 0.67 }, scale = 110, opacity = 100, borderSize = 2, borderColor = { r = 1.00, g = 1.00, b = 1.00 }, texture = "eui" },
     },
     {
         name = "Non Target",
         enabled = true,
-        conditions = { unitType = {}, reaction = {}, classification = {}, target = { yes = false }, questObjective = "any", castState = {}, spellSchool = {} },
-        style = { healthColorEnabled = true, healthColor = { r = 0.12, g = 0.92, b = 0.67 }, scale = 100, opacity = 75, borderSize = 1, borderColor = { r = 1.00, g = 1.00, b = 1.00 }, texture = "eui" },
+        conditions = { unitType = {}, reaction = {}, classification = {}, target = { no = true, none = true }, questObjective = "any", castState = {}, spellSchool = {} },
+        style = { healthColorEnabled = true, healthColor = { r = 0.12, g = 0.92, b = 0.67 }, scale = 100, opacity = 50, borderSize = 1, borderColor = { r = 1.00, g = 1.00, b = 1.00 }, texture = "eui" },
     },
 }
 
@@ -68,8 +68,8 @@ local activeCharacterKey
 local activeProfileName = "Default"
 local QueueRefresh
 local DEFAULT_PROFILE = { enabled = true, selectedRule = 1, rules = DEFAULT_RULES }
-local MAX_RULES = 12
-local MAX_PROFILES = 24
+local MAX_RULES = 100
+local MAX_PROFILES = 100
 
 local function CurrentCharacterKey()
     local name, realm
@@ -281,6 +281,17 @@ local function DeleteCharacterProfile()
         if profileName == oldName then profileStore.characterProfiles[character] = "Default" end
     end
     GetSettings()
+    if QueueRefresh then QueueRefresh() end
+    return true
+end
+
+local function ResetActiveProfile()
+    local current = GetSettings()
+    local fresh = NormalizeProfile(Copy(DEFAULT_PROFILE))
+    -- Keep the active settings object/profile assignment stable for consumers,
+    -- but remove every customization instead of resetting only selected keys.
+    for key in pairs(current) do current[key] = nil end
+    for key, value in pairs(fresh) do current[key] = value end
     if QueueRefresh then QueueRefresh() end
     return true
 end
@@ -1170,9 +1181,10 @@ local publicAPI = {
     CreateProfile = CreateCharacterProfile,
     RenameProfile = RenameCharacterProfile,
     DeleteProfile = DeleteCharacterProfile,
+    ResetActiveProfile = ResetActiveProfile,
     MaxProfiles = MAX_PROFILES,
     MaxRules = MAX_RULES,
-    DefaultRules = DEFAULT_RULES,
+    DefaultRules = Copy(DEFAULT_RULES),
 }
 -- Keep the previous global name as an alias for existing rule extensions.
 _G.EllesmereUINameplateExtras = publicAPI

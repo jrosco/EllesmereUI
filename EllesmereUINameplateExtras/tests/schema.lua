@@ -38,6 +38,10 @@ for _, rule in ipairs(api.GetRules()) do startersByName[rule.name] = rule end
 Check(next(startersByName["Elite Enemies"].conditions.target) == nil, "starter elite permits non-targets")
 Check(next(startersByName["Enemy Casting"].conditions.target) == nil, "starter enemy casting permits non-targets")
 Check(startersByName["Current Target"].conditions.target.yes == true, "starter current target retains Yes")
+Check(startersByName["Non Target"].conditions.target.no == true
+    and startersByName["Non Target"].conditions.target.none == true
+    and startersByName["Non Target"].conditions.target.yes == nil,
+    "starter non-target selects other units and no selected target, never current target")
 assert(api.SelectProfile("Default"))
 CheckTargets("switch")
 -- Model serialization/reload with a fresh root and fresh runtime locals.

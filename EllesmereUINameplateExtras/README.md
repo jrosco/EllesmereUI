@@ -27,6 +27,8 @@ The pinned Rules header displays the selected content/colors, including custom s
 
 The **Profiles** tab assigns a named rules profile to each character. **Default** is shared by characters that have not selected another profile. Creating a profile starts with the built-in default rules and appearance settings, then assigns only the current character; selecting the same named profile on other characters shares its rules with them. Renaming or deleting a named profile updates every character assigned to it. EUI's own active profile does not control these assignments; use **Copy Rule** to duplicate an individual rule.
 
+**Reset Nameplate Style** resets the active Extras profile to fresh built-in settings, including rule order, selection, enabled state and all appearance/condition overrides. It preserves the profile name, character assignments and other profiles. Reset normalizes the starter conditions and rebuilds the editor/header immediately. The Non Target starter selects both Not current target and No target selected. After installing an updated addon build, `/reload` before resetting so the running addon uses that build's defaults.
+
 ## Included rules
 
 Three starter rules are enabled: current target, elite enemy, and enemy casting. Add up to 12 rules, copy the selected rule, edit their conditions and visual effects, and move them to change priority. A copy is inserted after its source and selected for editing. New rules start enabled for the current target. The first enabled matching rule wins.
@@ -174,3 +176,5 @@ Run `lua EllesmereUINameplateExtras/tests/header-preview.lua` (or use Fengari) f
 Run `lua EllesmereUINameplateExtras/tests/text-overrides.lua` and `lua EllesmereUINameplateExtras/tests/text-options.lua` (or use Fengari) for per-rule text content/colors, native repaint/restoration, secret value sinks, Forever fallbacks, preview text/timers, editor locks and validated sharing.
 
 Run `lua EllesmereUINameplateExtras/tests/combat-instance.lua` and `lua EllesmereUINameplateExtras/tests/context-options.lua` (or use Fengari) for player combat and instance classification, OR/AND semantics, empty/Any behavior, cast-color filters, API gating, event transitions, restricted values, Forever capability gates, dropdown editing and sharing. The schema suite additionally validates/roundtrips every new condition value through v1/v2 imports.
+
+Run `lua EllesmereUINameplateExtras/tests/reset-defaults.lua` (or use Fengari) for full active-profile reset, pristine/deep-copied templates, normalized conditions, Non Target selections, and immediate editor/header refresh.
